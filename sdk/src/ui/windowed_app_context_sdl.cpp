@@ -85,6 +85,14 @@ void SDLWindowedAppContext::PlatformQuitFromUIThread() {
 }
 
 int SDLWindowedAppContext::RunMainMessageLoop() {
+#if REX_PLATFORM_ANDROID
+  // SDL 3.5 on Android: every SDL_PumpEventsInternal pushes a poll sentinel, SDL_PushEvent sends a wakeup,
+  // and on Android that wakeup is a lifecycle semaphore post that makes the next Android_PumpEvents wait
+  // return at once. SDL_WaitEvent therefore never sleeps: the UI thread spun at ~90 % of a big core
+  // (SDL_UpdateJoysticks, HIDAPI and clock reads on every turn) while receiving ~120 events per second.
+  // This loop only uses SDL_WaitEvent, which does not need the sentinel (it only bounds SDL_PollEvent loops).
+  SDL_SetHint(SDL_HINT_POLL_SENTINEL, "0");
+#endif
   while (!HasQuitFromUIThread()) {
     SDL_Event event;
     if (!SDL_WaitEvent(&event)) {
