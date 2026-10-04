@@ -74,6 +74,9 @@ class WindowSDL final : public Window {
   void ApplyCursorVisibilityNow();
   void ApplyTextInputActiveNow();
   void RearmCursorAutoHideTimer();
+  // Android: after a pause/resume SDL hands the window a new ANativeWindow and the old one is abandoned.
+  // If it differs from the one the presenter's surface was made from, the surface is made again.
+  void RefreshAndroidSurface();
 
   // Ratio between SDL window coordinates and the physical pixels listeners
   // expect. Never zero.
@@ -82,6 +85,8 @@ class WindowSDL final : public Window {
   SDL_Window* sdl_window_ = nullptr;
   SDL_WindowID sdl_window_id_ = 0;
   std::atomic<bool> paint_pending_{false};
+  // The ANativeWindow of the current presenter surface (Android only; compared, never dereferenced).
+  void* android_native_window_ = nullptr;
   // Auto-hide cursor bookkeeping (CursorVisibility::kAutoHidden).
   SDL_TimerID cursor_hide_timer_ = 0;
 };

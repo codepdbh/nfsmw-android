@@ -409,6 +409,7 @@ std::unique_ptr<Surface> WindowSDL::CreateSurfaceImpl(Surface::TypeFlags allowed
     auto* window = static_cast<ANativeWindow*>(
         SDL_GetPointerProperty(props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr));
     if (window) {
+      android_native_window_ = window;
       return std::make_unique<AndroidNativeWindowSurface>(window, sdl_window_);
     }
   }
@@ -489,11 +490,15 @@ void WindowSDL::HandleWindowEvent(SDL_Event& event) {
     }
     case SDL_EVENT_WINDOW_FOCUS_GAINED:
       OnFocusUpdate(true, destruction_receiver);
+      if (!destruction_receiver.IsWindowDestroyed()) {
+        RefreshAndroidSurface();
+      }
       break;
     case SDL_EVENT_WINDOW_FOCUS_LOST:
       OnFocusUpdate(false, destruction_receiver);
       break;
     case SDL_EVENT_WINDOW_EXPOSED:
+      RefreshAndroidSurface();
       // The platform cannot retain the previous image; force the paint.
       OnPaint(true);
       break;
@@ -502,6 +507,9 @@ void WindowSDL::HandleWindowEvent(SDL_Event& event) {
       break;
     case SDL_EVENT_WINDOW_RESTORED:
       OnRestored(destruction_receiver);
+      if (!destruction_receiver.IsWindowDestroyed()) {
+        RefreshAndroidSurface();
+      }
       break;
     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
       // SDL destroys nothing on its own; this is the veto point.
@@ -514,6 +522,21 @@ void WindowSDL::HandleWindowEvent(SDL_Event& event) {
     default:
       break;
   }
+}
+
+void WindowSDL::RefreshAndroidSurface() {
+#if REX_PLATFORM_ANDROID
+  if (!sdl_window_ || !HasSurface()) {
+    return;
+  }
+  SDL_PropertiesID props = SDL_GetWindowProperties(sdl_window_);
+  void* window = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
+  // The old ANativeWindow stays alive (the surface holds a reference), so a different pointer is a new window.
+  if (window && window != android_native_window_) {
+    REXLOG_INFO("Window: nueva ANativeWindow tras reanudar; se rehace la superficie del presentador");
+    OnSurfaceChanged(true);
+  }
+#endif
 }
 
 void WindowSDL::HandleDropEvent(SDL_Event& event) {
