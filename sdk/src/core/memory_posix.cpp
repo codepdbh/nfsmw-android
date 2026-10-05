@@ -12,6 +12,8 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstdio>
+#include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -238,6 +240,115 @@ static PageAccess PermsToPageAccess(const char perms[5]) {
 }  // namespace
 #endif  // REX_PLATFORM_LINUX
 
+#if REX_PLATFORM_LINUX
+// Page protections set through this file, by host page. Linux has no call that returns the protection of a
+// page: QueryProtect had to read and parse /proc/self/maps (thousands of lines) every time. The write-watch
+// fault handler (MMIOHandler) asks on every fault on a watched page, and Protect asks for the old access when
+// a watch is set or cleared: with the Xenos backend that was most of the game thread's time on Android.
+//
+// Every protection the SDK sets on guest memory goes through AllocFixed, DeallocFixed, Protect or MapFileView,
+// so they record it here; a page nobody recorded (or whose mapping was released) is "unknown" and QueryProtect
+// asks the kernel as before. Lock-free: QueryProtect runs inside the SIGSEGV handler. Chunks of 2^16 pages are
+// created on first use and never freed (a few dozen cover the guest views); a full table only means more
+// unknown pages.
+namespace {
+class PageProtectionTable {
+ public:
+  // value: PageAccess + 1, or 0 to forget the pages.
+  void Set(const void* base, size_t length, uint8_t value) {
+    const size_t page = page_size();
+    if (!length || !page) {
+      return;
+    }
+    uintptr_t first = reinterpret_cast<uintptr_t>(base) / page;
+    const uintptr_t last = (reinterpret_cast<uintptr_t>(base) + length - 1) / page;
+    while (first <= last) {
+      const uintptr_t chunk = first >> kChunkBits;
+      std::atomic<uint8_t>* data = value ? GetOrCreate(chunk) : Find(chunk);
+      const uintptr_t chunk_end = std::min<uintptr_t>(last, ((chunk + 1) << kChunkBits) - 1);
+      if (data) {
+        for (uintptr_t i = first; i <= chunk_end; ++i) {
+          data[i & kChunkMask].store(value, std::memory_order_release);
+        }
+      }
+      first = chunk_end + 1;
+    }
+  }
+
+  bool Get(const void* address, PageAccess& out) const {
+    const size_t page = page_size();
+    const uintptr_t index = reinterpret_cast<uintptr_t>(address) / page;
+    const std::atomic<uint8_t>* data = Find(index >> kChunkBits);
+    if (!data) {
+      return false;
+    }
+    const uint8_t value = data[index & kChunkMask].load(std::memory_order_acquire);
+    if (!value) {
+      return false;
+    }
+    out = static_cast<PageAccess>(value - 1);
+    return true;
+  }
+
+ private:
+  static constexpr unsigned kChunkBits = 16;
+  static constexpr uintptr_t kChunkMask = (uintptr_t(1) << kChunkBits) - 1;
+  static constexpr size_t kSlots = 1024;  // open addressing, power of two
+  static constexpr uintptr_t kEmpty = ~uintptr_t(0);
+
+  struct Slot {
+    std::atomic<uintptr_t> key{kEmpty};
+    std::atomic<std::atomic<uint8_t>*> data{nullptr};
+  };
+
+  static size_t Hash(uintptr_t chunk) { return size_t((chunk * 0x9E3779B97F4A7C15ull) >> 54) & (kSlots - 1); }
+
+  std::atomic<uint8_t>* Find(uintptr_t chunk) const {
+    for (size_t i = 0, slot = Hash(chunk); i < kSlots; ++i, slot = (slot + 1) & (kSlots - 1)) {
+      const uintptr_t key = slots_[slot].key.load(std::memory_order_acquire);
+      if (key == chunk) {
+        return slots_[slot].data.load(std::memory_order_acquire);
+      }
+      if (key == kEmpty) {
+        return nullptr;
+      }
+    }
+    return nullptr;
+  }
+
+  std::atomic<uint8_t>* GetOrCreate(uintptr_t chunk) {
+    for (size_t i = 0, slot = Hash(chunk); i < kSlots; ++i, slot = (slot + 1) & (kSlots - 1)) {
+      uintptr_t key = slots_[slot].key.load(std::memory_order_acquire);
+      if (key == kEmpty) {
+        if (slots_[slot].key.compare_exchange_strong(key, chunk, std::memory_order_acq_rel)) {
+          auto* data = new std::atomic<uint8_t>[size_t(1) << kChunkBits]();
+          slots_[slot].data.store(data, std::memory_order_release);
+          return data;
+        }
+      }
+      if (key == chunk) {
+        // Another thread may still be creating it: wait for the pointer.
+        std::atomic<uint8_t>* data;
+        while (!(data = slots_[slot].data.load(std::memory_order_acquire))) {
+        }
+        return data;
+      }
+    }
+    return nullptr;
+  }
+
+  Slot slots_[kSlots];
+};
+
+PageProtectionTable& Protections() {
+  static PageProtectionTable table;
+  return table;
+}
+
+uint8_t ProtectionValue(PageAccess access) { return uint8_t(static_cast<uint8_t>(access) + 1); }
+}  // namespace
+#endif
+
 void* AllocFixed(void* base_address, size_t length, AllocationType allocation_type,
                  PageAccess access) {
   // Emulates Windows VirtualAlloc behavior:
@@ -298,6 +409,11 @@ void* AllocFixed(void* base_address, size_t length, AllocationType allocation_ty
   void* result = mmap(base_address, length, prot_initial, flags, -1, 0);
   if (result != MAP_FAILED) {
     if (!base_address || result == base_address) {
+#if REX_PLATFORM_LINUX
+      Protections().Set(result, length,
+                        ProtectionValue(allocation_type == AllocationType::kReserve ? PageAccess::kNoAccess
+                                                                                    : access));
+#endif
       return result;
     }
     // Kernels before 4.17 may ignore MAP_FIXED_NOREPLACE and map elsewhere
@@ -315,6 +431,7 @@ void* AllocFixed(void* base_address, size_t length, AllocationType allocation_ty
     // Verify the entire range is mapped before using mprotect
     if (IsRangeFullyMapped(base_address, length)) {
       if (mprotect(base_address, length, static_cast<int>(prot_requested)) == 0) {
+        Protections().Set(base_address, length, ProtectionValue(access));
         return base_address;
       }
     }
@@ -331,12 +448,18 @@ bool DeallocFixed(void* base_address, size_t length, DeallocationType deallocati
       if (mprotect(base_address, length, PROT_NONE) != 0) {
         return false;
       }
+#if REX_PLATFORM_LINUX
+      Protections().Set(base_address, length, ProtectionValue(PageAccess::kNoAccess));
+#endif
 #if defined(MADV_DONTNEED)
       (void)madvise(base_address, length, MADV_DONTNEED);
 #endif
       return true;
     }
     case DeallocationType::kRelease: {
+#if REX_PLATFORM_LINUX
+      Protections().Set(base_address, length, 0);
+#endif
       return munmap(base_address, length) == 0;
     }
     default:
@@ -364,7 +487,7 @@ bool Protect(void* base_address, size_t length, PageAccess access, PageAccess* o
   //             This really shouldn't be an issue since VirtualProtect on Windows isn't truly
   //             atomic in a mutli-threaded process either, but it's something to be aware of.
   // Query old access before changing, if the caller needs it
-  if (out_old_access) {
+  if (out_old_access && !Protections().Get(base_address, *out_old_access)) {
     LinuxMapEntry e;
     if (FindEntryForAddress(base_address, e)) {
       *out_old_access = PermsToPageAccess(e.perms);
@@ -374,6 +497,10 @@ bool Protect(void* base_address, size_t length, PageAccess access, PageAccess* o
 
   uint32_t prot = ToPosixProtectFlags(access);
   int ret = mprotect(base_address, length, prot);
+#if REX_PLATFORM_LINUX
+  // A failed mprotect may have changed part of the range: forget it rather than guess.
+  Protections().Set(base_address, length, ret == 0 ? ProtectionValue(access) : 0);
+#endif
   if (ret != 0) {
     REXSYS_ERROR("mprotect({}, 0x{:X}, {}) failed: {} ({})", base_address, length, prot,
                  strerror(errno), errno);
@@ -423,6 +550,12 @@ bool QueryProtect(void* base_address, size_t& length, PageAccess& access_out) {
 #else
   access_out = PageAccess::kNoAccess;
   length = 0;
+
+  if (Protections().Get(base_address, access_out)) {
+    const size_t page = page_size();
+    length = page - reinterpret_cast<uintptr_t>(base_address) % page;
+    return true;
+  }
 
   LinuxMapEntry e;
   if (!FindEntryForAddress(base_address, e)) {
@@ -533,10 +666,16 @@ void* MapFileView(FileMappingHandle handle, void* base_address, size_t length, P
     return nullptr;
   }
 
+#if REX_PLATFORM_LINUX
+  Protections().Set(result, length, ProtectionValue(access));
+#endif
   return result;
 }
 
 bool UnmapFileView(FileMappingHandle handle, void* base_address, size_t length) {
+#if REX_PLATFORM_LINUX
+  Protections().Set(base_address, length, 0);
+#endif
   return munmap(base_address, length) == 0;
 }
 
