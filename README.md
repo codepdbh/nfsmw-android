@@ -2,115 +2,98 @@
 
 # NFSMW Android Evolved
 
-**Need for Speed: Most Wanted (2005) para Android ARM64**
+**Need for Speed: Most Wanted (2005) for Android ARM64**
 
-APK nativo · Vulkan · controles táctiles · generación local de shaders
+Native APK · Vulkan 1.1+ · touch controls · on-device shader generation
 
-[Descargar la última versión](https://github.com/codepdbh/nfsmw-android/releases/latest)
+[Download the latest release](https://github.com/codepdbh/nfsmw-android/releases/latest) · [Español](README.es.md)
 
 </div>
 
-Este proyecto adapta a Android el trabajo de recompilación de [nfsmw-nx](https://github.com/StevensND/nfsmw-nx) y el SDK [ReXGlue](https://github.com/rexglue/rexglue-sdk). La aplicación usa código C++ recompilado, SDL3 y el renderizador nativo sobre Vulkan. No emula una Xbox 360 ni incluye los archivos del juego.
+This project brings the [nfsmw-nx](https://github.com/StevensND/nfsmw-nx) recompilation and the [ReXGlue](https://github.com/rexglue/rexglue-sdk) SDK to Android. The app runs recompiled C++ code with SDL3 and a native Vulkan renderer. It does not emulate an Xbox 360 and does not include any game files.
 
-## Requisitos
+## Requirements
 
-- Android 8 o posterior y procesador ARM64 compatible con ARMv8.0 o posterior (desde v0.3.5).
-- GPU con Vulkan y un controlador compatible con alguno de los renderizadores del port. Se han probado un **Samsung Galaxy S25 Ultra** (audio y juego en v0.3.3), un **Samsung Galaxy A55 con Xclipse 530** (corrección gráfica en v0.3.4) y un **Redmi Note 8 con Adreno 610** (modo de compatibilidad en v0.3.5, con mucha lentitud). El soporte de otros teléfonos, incluidos Helio G99/G200, sigue pendiente de pruebas.
-- Una copia propia de **Need for Speed: Most Wanted (2005), Xbox 360, edición PAL España**, extraída y con `default.xex`, `NFS/` y `Movies/`. Este APK se compila para esa edición. Los archivos de la versión de PC, PS2 o una ISO sin extraer no sirven para estos pasos.
-- Espacio en la memoria interna para el APK, la carpeta completa del juego y los archivos generados. Si importas una carpeta que ya está en el teléfono, necesitas espacio para una copia adicional durante la importación.
+- Android 8 or later on an ARM64 processor (ARMv8.0 or later).
+- A GPU with **Vulkan 1.1 or later** and *descriptor indexing*: built into Vulkan 1.2, or through the `VK_EXT_descriptor_indexing` extension on 1.1 drivers. Since v0.3.7, `shaderInt64` and *buffer device address* are no longer needed. The launcher checks your GPU before you play.
+- Your own copy of **Need for Speed: Most Wanted (2005), Xbox 360, PAL Spain edition**, extracted, with `default.xex`, `NFS/` and `Movies/`. This APK is built for that edition's executable. With another edition the game closes at startup, and the launcher warns you. Files from the PC or PS2 versions, or an unextracted ISO, will not work.
+- Enough internal storage for the APK, the game folder and the generated files.
 
-## Instalación y primer inicio
+Tested on a **Samsung Galaxy S25 Ultra** (Adreno 830) and a **Galaxy A55** (Xclipse 530). Tester reports also cover several Mali GPUs (G57, G615, G68, G720).
 
-1. Descarga el archivo APK de la última publicación en [Releases](https://github.com/codepdbh/nfsmw-android/releases/latest) y ábrelo en el teléfono. Si Android lo solicita, permite **Instalar aplicaciones desconocidas** al navegador o gestor de archivos que estés usando.
-2. Instala el APK y abre **Need for Speed Most Wanted**. Autoriza el acceso a archivos que solicita la app; en Android 11 o posterior aparece el ajuste de **acceso a todos los archivos**. Después vuelve al launcher.
-3. Copia `default.xex`, `NFS/` y `Movies/` directamente dentro de `Memoria interna/nsfmw-androidevolved/`. También puedes pulsar **Elegir carpeta del juego** y seleccionar la carpeta extraída que contiene esos tres elementos; la app la copia a ese destino.
-4. Comprueba que el launcher marque los archivos como disponibles y pulsa **Jugar**. En modo **Nativo**, la primera vez genera `nfsmw_shaders.nfsp` a partir de tu copia y muestra el avance; espera a que termine. Puede tardar varios minutos. Si la GPU carece de las funciones necesarias, el launcher ofrece **Probar compatibilidad**. También puedes seleccionar **Renderizador → Compatibilidad · experimental**; este modo no necesita esa biblioteca.
-5. Se abre el juego en horizontal. Los siguientes inicios en modo nativo usan la biblioteca generada. En teléfonos compatibles con ese modo puedes empezar con 1280×720 y 60 FPS. El modo de compatibilidad puede tener errores, pausas o bloqueos y no garantiza un rendimiento jugable.
+**Not supported yet:** GPUs without *descriptor indexing*, even on recent drivers. This includes Mali-G52/G72/G76 (Bifrost), Adreno 610 and PowerVR GE8320. The renderer needs a different way of managing textures for them.
 
-La carpeta debe quedar así:
+## Installation and first launch
+
+1. Download the APK from the latest release in [Releases](https://github.com/codepdbh/nfsmw-android/releases/latest) and open it on your phone. If Android asks, allow **Install unknown apps** for your browser or file manager.
+2. Install the APK and open **Need for Speed Most Wanted**. Grant the file access the app asks for; on Android 11 or later this is the **All files access** setting. Then go back to the launcher.
+3. Copy `default.xex`, `NFS/` and `Movies/` directly into `Internal storage/nsfmw-androidevolved/`. You can also tap **Elegir carpeta del juego** (choose game folder) and select the extracted folder; the app copies it there.
+4. Check that the launcher shows the files as available, then tap **Jugar** (play). The first time, the app builds `nfsmw_shaders.nfsp` from your copy and shows its progress. This takes from a few seconds to a couple of minutes on slower phones.
+5. The game opens in landscape. Try 1280×720 at 60 FPS to start with.
+
+The folder should look like this:
 
 ```text
-Memoria interna/nsfmw-androidevolved/
+Internal storage/nsfmw-androidevolved/
 ├── default.xex
 ├── NFS/
 ├── Movies/
-└── nfsmw_shaders.nfsp   (generado por la app para el modo nativo)
+├── nfsmw_shaders.nfsp           (generated by the app)
+└── nfsmw_shaders.nfsp.version   (generated by the app)
 ```
 
-No descargues ni compartas archivos del juego. La biblioteca de shaders se genera en el dispositivo desde los archivos locales de tu copia.
+Do not download or share game files. The shader library is built on your device from your own copy.
 
-### Actualizar desde una versión anterior
+### Updating from an earlier version
 
-Instala el nuevo APK encima del anterior, **sin desinstalar ni borrar los datos de la app**. Las versiones publicadas en este repositorio usan la misma firma y la actualización conserva las partidas y los ajustes. Si ya tienes los archivos del juego y los shaders, no hace falta importarlos ni generarlos otra vez.
+Install the new APK over the old one, **without uninstalling it or clearing the app's data**. Your saves and settings are kept. If the new version changes the shaders, the app rebuilds them on its own when you tap **Jugar**. With v0.3.7 this happens once.
 
-### Si no aparece Jugar
+### If Jugar does not appear
 
-- Revisa el permiso de archivos y vuelve a abrir la app.
-- Comprueba que `default.xex` esté directamente en `nsfmw-androidevolved/`, junto a `NFS/` y `Movies/`. Evita una carpeta adicional como `nsfmw-androidevolved/Need for Speed Most Wanted/default.xex`.
-- Si la importación falla, revisa el espacio libre y selecciona la carpeta que contiene los tres elementos, no la carpeta `NFS` por separado.
-- Si Android rechaza la actualización por una firma diferente, la instalación anterior procede de otra compilación. Conserva tus partidas antes de cambiar de instalación.
+- Check the file access permission and reopen the app.
+- Make sure `default.xex` sits directly in `nsfmw-androidevolved/`, next to `NFS/` and `Movies/`, with no extra folder in between.
+- If the import fails, check your free space and select the folder that contains all three items.
 
-## Launcher, ajustes y controles
+## Launcher, settings and controls
 
-En el launcher puedes cambiar resolución interna, límite de FPS, antialiasing, sombras, reflejos del coche y del asfalto, resplandor del cielo y filtro de imagen. La app también guarda ajustes de controles y formato de pantalla.
+- **Graphics:** internal resolution, FPS limit, antialiasing, shadows, reflections, sky glow, image filter and screen format.
+- **Text language** (v0.3.7): the PAL disc carries the game text in ten languages (Spanish, English, French, German, Italian, Dutch, Swedish, Danish, Finnish and Polish). Choose one in the launcher. Speech and movies stay in the disc's language.
+- **Game volume**: from Normal to Maximum.
+- **Touch controls:** analog or tilt steering, D-pad, A/B/X/Y, LB/RB, BACK, START, brake and throttle. In the editor (gear button) you can move, resize and hide them, and change their opacity.
+- **Bluetooth and USB gamepads** work as player 1 and hide the touch controls.
+- **Enviar crash o log** (send crash or log) creates a ZIP with your device report, to share by email or in a GitHub issue. Attach the ZIP to the form. See the [tester guide](docs/android-testers.md) (in Spanish).
 
-El juego se abre en horizontal. La superposición táctil incluye dirección, botones de acción, START, freno y acelerador. Desde el editor de controles puedes mover y redimensionar botones, ocultarlos y ajustar su opacidad. También se admiten mandos Bluetooth y USB.
+## What's new in v0.3.7
 
-Desde v0.3.5, el joystick también responde al dedo si está activado **Inclinar**: al soltarlo vuelve el control por inclinación. El modo de compatibilidad conserva el camino gráfico original del juego; algunos ajustes específicos del renderizador nativo no se aplican en él.
+- **Vulkan 1.1:** the native renderer runs on 1.1 drivers that have `VK_EXT_descriptor_indexing`. The shaders (SPIR-V 1.5) are converted to SPIR-V 1.3 when they are loaded; all 152 pass the official validator for Vulkan 1.1.
+- **No more `shaderInt64` or buffer device address:** the shaders no longer read constants through 64-bit pointers. This opens the game to many Adreno 7xx and Mali-G57/G68 phones that stopped at *"el dispositivo Vulkan no tiene shaderInt64"*. The shader library is rebuilt once (PAL Spain: SHA-256 `b84602ca…`).
+- **Text language** selectable in the launcher.
+- **Edition warning:** if your `default.xex` is not the PAL Spain one, the launcher explains it instead of closing with *"No function registered at 8262E768"*.
+- Reports now include the game edition, `shaderInt64`, the descriptor indexing source and the list of Vulkan extensions.
 
-## Compatibilidad en prueba: v0.3.6-experimental
+Tested on the Galaxy S25 Ultra, including a simulated Vulkan 1.1 driver without 64-bit pointers. The details are in the [tester guide](docs/android-testers.md).
 
-La nueva compilación de prueba adapta el renderer **Nativo** a controladores sin texturas BC1–BC5:
-convierte los formatos que falten en CPU y conserva sus niveles de detalle, transparencia y cubos.
-También separa los requisitos nativos de los del backend Xenos: la ausencia de
-`vertexPipelineStoresAndAtomics` ya no bloquea el inicio nativo en Android.
-Los requisitos de los shaders nativos, incluidos Vulkan 1.2, `shaderInt64` y los descriptores,
-siguen siendo necesarios; esta adaptación no habilita el renderer nativo en todos los teléfonos.
+## Earlier versions
 
-En **Estabilidad gráfica → Automática · protección Mali**, Mali evita las consultas de oclusión
-del sol y de los reflejos. Conserva los reflejos mediante lecturas y omite el destello solar.
-**Máxima compatibilidad** aplica esta alternativa en cualquier GPU; **Efectos completos**
-permite probar las consultas originales y puede reintroducir cierres en Mali.
-Estos ajustes se aplican al renderer **Nativo**. Xenos conserva sus requisitos propios.
+- **v0.3.6:** CPU conversion of the BC1–BC5 textures the driver does not support; Mali protection in **Estabilidad gráfica** (graphics stability).
+- **v0.3.5:** **Compatibilidad · experimental** mode (Xenos backend), a memory fix for old kernels, and reports from the launcher.
+- **v0.3.4:** fixed blocky and wrong reflections on Xclipse ([diagnosis](docs/android-xclipse-diagnostic.md)).
+- **v0.3.3:** fixed intro and cutscene audio ([Android audio](docs/android-audio.md)).
 
-Las pruebas de conversión pasan en PC y ARMv8.0. En el Redmi Note 8 con Vulkan 1.1.128 se
-verificó la subida y lectura de los cinco formatos convertidos, con seis caras y cuatro mips.
-Esto valida la ruta de texturas, no el juego completo ni su rendimiento.
-La ejecución completa en Mali-G615 y Mali-G715 sigue pendiente de testers.
-El APK está disponible como [versión experimental en Releases](https://github.com/codepdbh/nfsmw-android/releases/tag/v0.3.6-experimental).
-Instálalo encima del anterior y selecciona **Renderizador → Nativo** y
-**Estabilidad gráfica → Automática · protección Mali** para probar esta adaptación.
+## Building
 
-## Compatibilidad e informes en v0.3.5
-
-Se añade **Renderizador → Compatibilidad · experimental**, que consiguió reproducir las intros y llegar a conducir en el Redmi Note 8 probado. Se corrige una reserva de memoria que causaba cierres en su kernel antiguo. Persisten lentitud y esperas de la GPU; todavía no se ha comprobado una carrera completa ni el soporte de Helio G99/G200.
-
-El botón **Enviar crash o log** permite compartir un ZIP por correo a `daniebatuani@gmail.com`, guardarlo o abrir un issue en GitHub. En GitHub debes adjuntar el ZIP al formulario. Consulta [la guía para testers](docs/android-testers.md).
-
-## Gráficos en v0.3.4
-
-Se corrigieron bloques, manchas y reflejos incorrectos en la carrocería que aparecían tanto en el menú como durante las carreras del Galaxy A55. El renderizador ahora sincroniza las copias de texturas y sus lecturas entre pases de Vulkan. La mejora se comprobó en el teléfono y fue confirmada por su usuario. La corrección se activa automáticamente y no requiere cambiar los archivos del juego ni regenerar los shaders. Consulta [el diagnóstico de Xclipse](docs/android-xclipse-diagnostic.md) para los detalles de la prueba.
-
-## Audio desde v0.3.3
-
-Se corrigió el ruido de los logos y los videos iniciales, incluida la voz de la chica, y el audio doble de las cinemáticas de historia. También se ajustó la salida del juego para reducir cortes y distorsión. La reproducción de intros, cinemáticas de historia y gameplay se comprobó en un Galaxy S25 Ultra con la edición PAL española. Las pruebas técnicas están descritas en [Audio en Android](docs/android-audio.md).
-
-## Compilar
-
-El código para Android admite ARMv8.0 desde v0.3.5; el APK v0.3.4 requiere ARMv8.2-A.
-
-Requisitos: Android SDK, NDK `28.2.13676358`, JDK 17 o posterior y PowerShell.
+Requirements: Android SDK, NDK `28.2.13676358`, JDK 17 or later, and PowerShell.
 
 ```powershell
 .\build_android.ps1
 ```
 
-El APK Release se genera en `android/app/build/outputs/apk/release/app-release.apk`. La compilación usa optimización nativa Release y está configurada para `arm64-v8a`.
+The Release APK is written to `android/app/build/outputs/apk/release/app-release.apk`. It is optimized and built for `arm64-v8a`.
 
-## Proyecto y licencias
+## Project and licenses
 
-- `android/`: launcher, integración SDL y build Android.
-- `app/`, `sdk/`: aplicación recompilada y ReXGlue.
-- `docs/`: notas del port y compilación.
+- `android/`: launcher, SDL integration and the Android build.
+- `app/`, `sdk/`: the recompiled application and ReXGlue.
+- `docs/`: port notes and build documentation.
 
-Los archivos del juego y el código generado desde `default.xex` se mantienen fuera de Git. Consulta [`LICENSE`](LICENSE) y [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) para las licencias. Proyecto de aficionados, sin afiliación con Electronic Arts; “Need for Speed” es una marca de Electronic Arts Inc.
+Game files and the code generated from `default.xex` are kept out of Git. See [`LICENSE`](LICENSE) and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). This is a fan project with no affiliation with Electronic Arts; "Need for Speed" is a trademark of Electronic Arts Inc.
