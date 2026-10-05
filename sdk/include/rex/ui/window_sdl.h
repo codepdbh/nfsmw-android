@@ -42,6 +42,9 @@ class WindowSDL final : public Window {
   void HandleMouseEvent(SDL_Event& event);
   void HandleDropEvent(SDL_Event& event);
   void HandlePaintEvent();
+  // Android: the activity went to the background (the native surface is about to be destroyed) or came back.
+  // Called by SDLWindowedAppContext on the UI thread.
+  void HandleAndroidLifecycle(bool foreground);
 
  protected:
   uint32_t GetLatestDpiImpl() const override;
@@ -84,6 +87,10 @@ class WindowSDL final : public Window {
   std::atomic<bool> paint_pending_{false};
   // Auto-hide cursor bookkeeping (CursorVisibility::kAutoHidden).
   SDL_TimerID cursor_hide_timer_ = 0;
+  // Android: the ANativeWindow the presenter's surface was created for. Android destroys it when the app goes
+  // to the background and gives a new one when it comes back; see RefreshAndroidSurface.
+  void* android_window_ = nullptr;
+  void RefreshAndroidSurface();
 };
 
 }  // namespace rex::ui

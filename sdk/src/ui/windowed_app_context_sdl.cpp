@@ -169,6 +169,23 @@ void SDLWindowedAppContext::ProcessEvent(SDL_Event& event) {
       }
       break;
     }
+#if REX_PLATFORM_ANDROID
+    // The activity's surface is destroyed in the background and replaced when it comes back.
+    case SDL_EVENT_WILL_ENTER_BACKGROUND:
+    case SDL_EVENT_DID_ENTER_BACKGROUND:
+    case SDL_EVENT_WILL_ENTER_FOREGROUND:
+    case SDL_EVENT_DID_ENTER_FOREGROUND: {
+      const bool primer_plano =
+          event.type == SDL_EVENT_WILL_ENTER_FOREGROUND || event.type == SDL_EVENT_DID_ENTER_FOREGROUND;
+      for (const auto& [id, window] : windows_) {
+        (void)window;
+        if (WindowSDL* w = GetWindow(id)) {
+          w->HandleAndroidLifecycle(primer_plano);
+        }
+      }
+      break;
+    }
+#endif
     case SDL_EVENT_DROP_FILE: {
       if (WindowSDL* window = GetWindow(event.drop.windowID)) {
         window->HandleDropEvent(event);

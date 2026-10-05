@@ -409,6 +409,7 @@ std::unique_ptr<Surface> WindowSDL::CreateSurfaceImpl(Surface::TypeFlags allowed
     auto* window = static_cast<ANativeWindow*>(
         SDL_GetPointerProperty(props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr));
     if (window) {
+      android_window_ = window;
       return std::make_unique<AndroidNativeWindowSurface>(window, sdl_window_);
     }
   }
@@ -453,7 +454,59 @@ void WindowSDL::HandlePaintEvent() {
   OnPaint();
 }
 
+void WindowSDL::HandleAndroidLifecycle(bool foreground) {
+#if REX_PLATFORM_ANDROID
+  if (foreground) {
+    RefreshAndroidSurface();
+    return;
+  }
+  // Detach the presenter before Android destroys the surface. Otherwise it keeps presenting to a dead
+  // swapchain, fails to rebuild it on the destroyed window and gives up painting for good: a black screen
+  // after coming back from another app.
+  if (HasSurface()) {
+    OnSurfaceChanged(false);
+  }
+  android_window_ = nullptr;
+#else
+  (void)foreground;
+#endif
+}
+
+void WindowSDL::RefreshAndroidSurface() {
+#if REX_PLATFORM_ANDROID
+  if (!presenter() || !sdl_window_) {
+    return;
+  }
+  void* current = SDL_GetPointerProperty(SDL_GetWindowProperties(sdl_window_),
+                                         SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
+  // The new surface may arrive after the foreground event: every later window event checks again.
+  if (!current || (HasSurface() && current == android_window_)) {
+    return;
+  }
+  REXLOG_INFO("WindowSDL: nueva superficie de Android ({}); se vuelve a conectar el presentador",
+              HasSurface() ? "ha cambiado" : "tras volver a primer plano");
+  OnSurfaceChanged(true);
+  if (HasSurface()) {
+    OnPaint(true);
+  }
+#endif
+}
+
 void WindowSDL::HandleWindowEvent(SDL_Event& event) {
+#if REX_PLATFORM_ANDROID
+  switch (event.type) {
+    case SDL_EVENT_WINDOW_SHOWN:
+    case SDL_EVENT_WINDOW_EXPOSED:
+    case SDL_EVENT_WINDOW_RESTORED:
+    case SDL_EVENT_WINDOW_RESIZED:
+    case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+      RefreshAndroidSurface();
+      break;
+    default:
+      break;
+  }
+#endif
   WindowDestructionReceiver destruction_receiver(this);
   switch (event.type) {
     case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
