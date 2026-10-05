@@ -63,6 +63,10 @@ Instala el nuevo APK encima del anterior, **sin desinstalar ni borrar los datos 
 - **Mandos Bluetooth y USB**: funcionan como jugador 1 y ocultan los controles táctiles.
 - **Enviar crash o log**: genera un ZIP con el informe de tu dispositivo para compartirlo por correo o en un issue de GitHub. Adjunta el ZIP al formulario. Consulta [la guía para testers](docs/android-testers.md).
 
+## Novedades de la v0.3.8
+
+- Corregida la pantalla negra al volver al juego después de cambiar a otra app.
+
 ## Novedades de la v0.3.7
 
 - **Vulkan 1.1:** el renderizador nativo funciona en controladores 1.1 con `VK_EXT_descriptor_indexing`. Los shaders (SPIR-V 1.5) se convierten a SPIR-V 1.3 al cargarse; los 152 superan el validador oficial para Vulkan 1.1.

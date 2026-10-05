@@ -63,6 +63,10 @@ Install the new APK over the old one, **without uninstalling it or clearing the 
 - **Bluetooth and USB gamepads** work as player 1 and hide the touch controls.
 - **Enviar crash o log** (send crash or log) creates a ZIP with your device report, to share by email or in a GitHub issue. Attach the ZIP to the form. See the [tester guide](docs/android-testers.md) (in Spanish).
 
+## What's new in v0.3.8
+
+- Fixed the black screen when returning to the game after switching to another app.
+
 ## What's new in v0.3.7
 
 - **Vulkan 1.1:** the native renderer runs on 1.1 drivers that have `VK_EXT_descriptor_indexing`. The shaders (SPIR-V 1.5) are converted to SPIR-V 1.3 when they are loaded; all 152 pass the official validator for Vulkan 1.1.
