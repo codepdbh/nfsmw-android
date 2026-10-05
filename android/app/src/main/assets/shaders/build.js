@@ -14,6 +14,13 @@ import { setLanguage } from './lib/i18n.js';
 const host = window.NfsmwShaders;
 const GAME = 'https://appassets.androidplatform.net/game/';
 const CHUNK = 16 << 20;  // as the installer: the scanner keeps 64 KB of look-ahead between chunks
+// SHA-256 of the Android library (this folder's shader_common.h) by SHA-256 of default.xex. Rebuild the value
+// with the same modules whenever shader_common.h changes (the version in ShaderBuilder.LIBRARY_VERSION too).
+const ANDROID_LIBRARIES = {
+  // PAL (Spanish)
+  aad15fc218d034de3131f746e0b763dd8049a40dd676efc87667fcaf4fc72694:
+    'b84602ca9bf6efd84f54ad1509297baccd57c04ffcda494c77f5780a433f95a7',
+};
 
 const progress = (fraction, text) => host.progress(Math.max(0, Math.min(1, fraction)), text);
 
@@ -131,8 +138,11 @@ async function main() {
 
   progress(0.99, 'Comprobando la biblioteca…');
   const libraryHash = await sha256(library);
-  if (build && libraryHash !== build.library_sha256) {
-    throw new Error(`la biblioteca no coincide con la oficial (${libraryHash.slice(0, 12)}…)`);
+  // Android's library differs from the Switch one on purpose: its shader_common.h has no 64-bit pointer path
+  // (Vulkan 1.1 and drivers without shaderInt64), so it is checked against its own SHA-256 per executable.
+  const expected = ANDROID_LIBRARIES[xexHash];
+  if (expected && libraryHash !== expected) {
+    throw new Error(`la biblioteca no coincide con la esperada (${libraryHash.slice(0, 12)}…)`);
   }
   // Base64 in pieces, so no single string conversion of 3 MB of bytes has to fit in the call stack.
   let text = '';

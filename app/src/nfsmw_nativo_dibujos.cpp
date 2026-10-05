@@ -36,6 +36,7 @@
 #include "nfsmw_nativo_texturas_pool.h"
 #include "nfsmw_texturas_bc.h"
 #include "nfsmw_nativo_sincronizacion.h"
+#include "nfsmw_spirv_vulkan11.h"
 
 #include "nfsmw_ajustes_graficos.h"
 #if __has_include("nfsmw_nativo_resplandor_energia_spirv.h") && __has_include("nfsmw_nativo_resplandor_suave_spirv.h")
@@ -199,6 +200,10 @@ REXCVAR_DEFINE_BOOL(nfsmw_nativo_omitir_sombras, false, "NFSMW",
                     "(destino solo de profundidad de 1600 o mas de pitch); recorte visible");
 // Enabled by default. On the console (A and B alternating every 30 s), the UBO intervals run 18-23 %
 // faster than the neighbouring pointer intervals at the same draw load.
+REXCVAR_DEFINE_BOOL(nfsmw_nativo_simular_vulkan11, false, "NFSMW",
+                    "Prueba: el renderizador nativo actua como en un controlador Vulkan 1.1 sin punteros de 64 bits "
+                    "(SPIR-V de la biblioteca convertido a 1.3, sin buffer device address)")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_BOOL(nfsmw_nativo_constantes_ubo, true, "NFSMW",
                     "Renderizador nativo: los shaders leen sus constantes de UBO dinamicos (banco de constantes en "
                     "Maxwell) en vez de por puntero de 64 bits. Mismos bytes: no cambia la imagen. Necesita la "
@@ -2172,8 +2177,6 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     const auto& propiedades = dispositivo_->properties();
     const std::pair<bool, const char*> requisitos[] = {
         {propiedades.independentBlend, "independentBlend"},
-        {propiedades.shaderInt64, "shaderInt64"},
-        {propiedades.bufferDeviceAddress, "bufferDeviceAddress"},
         {propiedades.runtimeDescriptorArray, "runtimeDescriptorArray"},
         {propiedades.shaderSampledImageArrayDynamicIndexing,
          "shaderSampledImageArrayDynamicIndexing"},
@@ -2210,14 +2213,24 @@ class DibujosVulkanImpl final : public DibujosVulkan {
                     i + 1, i < 3 ? "RGBA8" : i == 3 ? "R8" : "RG8");
       }
     }
-    direccion_bufer_ = reinterpret_cast<FnDireccionBufer>(
-        dispositivo_->vulkan_instance()->functions().vkGetDeviceProcAddr(device_,
-                                                                          "vkGetBufferDeviceAddress"));
+    // 64-bit pointers (shaderInt64 and buffer device address) are optional: the shaders read every constant
+    // from the set 4 UBOs, and with the current library they do not even contain the pointer path. Many Mali,
+    // Adreno and PowerVR drivers have neither. Without them the push constants carry zeros.
+    const bool simular_11 = REXCVAR_GET(nfsmw_nativo_simular_vulkan11);
+    if (propiedades.shaderInt64 && propiedades.bufferDeviceAddress && !simular_11) {
+      direccion_bufer_ = reinterpret_cast<FnDireccionBufer>(
+          dispositivo_->vulkan_instance()->functions().vkGetDeviceProcAddr(device_, "vkGetBufferDeviceAddress"));
+    }
+    // A Vulkan 1.1 driver only takes SPIR-V up to 1.3: the library's 1.5 modules are converted when created.
+    spirv_13_ = propiedades.apiVersion < VK_MAKE_API_VERSION(0, 1, 2, 0) || simular_11;
+    REXLOG_INFO("[nativo] C6: punteros de 64 bits {}; SPIR-V de la biblioteca {}",
+                direccion_bufer_ ? "disponibles" : "NO disponibles (constantes solo por UBO)",
+                spirv_13_ ? "convertido a 1.3 (Vulkan 1.1)" : "1.5 tal cual");
     copiar_imagen_ = reinterpret_cast<FnCopiarImagen>(
         dispositivo_->vulkan_instance()->functions().vkGetDeviceProcAddr(device_, "vkCmdCopyImage"));
     CargarCachePipelines();
     CargarEstadoDinamico();  // dynamic state phases 1 and 2
-    if (!direccion_bufer_ || !CrearSubida() || !CrearDescriptores()) {
+    if (!CrearSubida() || !CrearDescriptores()) {
       return false;
     }
     // The pool is created after CrearDescriptores (where texturas_mb_max_ is read) and before CrearVacias,
@@ -7879,7 +7892,10 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     // UNIFORM_BUFFER because it is also bound as a dynamic UBO (constants through UBOs, set 4).
     info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    if (direccion_bufer_) {
+      info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    }
     info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     if (dfn_.vkCreateBuffer(device_, &info, nullptr, &subida_) != VK_SUCCESS) {
       return false;
@@ -7911,7 +7927,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     banderas.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
     VkMemoryAllocateInfo reserva{};
     reserva.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    reserva.pNext = &banderas;
+    reserva.pNext = direccion_bufer_ ? &banderas : nullptr;
     reserva.allocationSize = requisitos.size;
     reserva.memoryTypeIndex = subida_tipo_;
     if (dfn_.vkAllocateMemory(device_, &reserva, nullptr, &subida_memoria_) != VK_SUCCESS) {
@@ -7926,6 +7942,10 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       return false;
     }
     subida_datos_ = static_cast<uint8_t*>(mapeado);
+    if (!direccion_bufer_) {
+      subida_direccion_ = 0;
+      return true;
+    }
     VkBufferDeviceAddressInfo direccion{};
     direccion.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
     direccion.buffer = subida_;
@@ -8044,7 +8064,11 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     // then bound with offsets 0). With an older library it is unnecessary and harmless. No
     // UPDATE_AFTER_BIND: dynamic descriptors do not support it. CrearSubida runs first, so the buffers
     // already exist.
-    usar_ubo_ = REXCVAR_GET(nfsmw_nativo_constantes_ubo);
+    // Always through UBOs: the library's shaders no longer have the pointer path (shader_common.h).
+    usar_ubo_ = true;
+    if (!REXCVAR_GET(nfsmw_nativo_constantes_ubo)) {
+      REXLOG_WARN("[nativo] C6: nfsmw_nativo_constantes_ubo = false ya no se admite: los shaders solo leen los UBO");
+    }
     cache_entre_fotogramas_ = REXCVAR_GET(nfsmw_nativo_cache_texturas_entre_fotogramas);
     REXLOG_INFO("[nativo] C6: caches de texturas entre fotogramas (nfsmw_nativo_cache_texturas_entre_fotogramas) = {}",
                 cache_entre_fotogramas_ ? "SI" : "no");
@@ -8063,7 +8087,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       REXLOG_INFO("[nativo] C3: diagnostico de mips (nfsmw_nativo_diag_mips) = SI");
     }
     alineacion_ubo_ = std::max<VkDeviceSize>(16, dispositivo_->properties().minUniformBufferOffsetAlignment);
-    alternar_ubo_s_ = REXCVAR_GET(nfsmw_nativo_constantes_ubo_alternar_s);
+    alternar_ubo_s_ = 0;  // the pointer half of that test no longer exists
     REXLOG_INFO("[nativo] C6: constantes por UBO dinamico (nfsmw_nativo_constantes_ubo) = {}; alternar cada {} s; "
                 "alineacion {} bytes",
                 usar_ubo_ ? "SI" : "no", alternar_ubo_s_, alineacion_ubo_);
@@ -10432,14 +10456,28 @@ class DibujosVulkanImpl final : public DibujosVulkan {
 
   // The bright pass variants of nfsmw_resplandor_cielo (1 natural, 2 soft), compiled with the same DXC
   // options as the library.
+  // vkCreateShaderModule for the library's SPIR-V, converted to 1.3 on a Vulkan 1.1 device (spirv_13_). Called
+  // from the ring thread and from the prewarm thread: it only reads spirv_13_ and dfn_.
+  VkResult CrearModulo(const uint32_t* spirv, size_t bytes, VkShaderModule* modulo) {
+    VkShaderModuleCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    info.codeSize = bytes;
+    info.pCode = spirv;
+    std::vector<uint32_t> convertido;
+    if (spirv_13_ && nfsmw::spirv11::Necesita(spirv, bytes / 4)) {
+      convertido = nfsmw::spirv11::Convertir(spirv, bytes / 4);
+      if (!convertido.empty()) {
+        info.codeSize = convertido.size() * sizeof(uint32_t);
+        info.pCode = convertido.data();
+      }
+    }
+    return dfn_.vkCreateShaderModule(device_, &info, nullptr, modulo);
+  }
+
   VkShaderModule ModuloVariante(size_t indice, const uint32_t* spirv, size_t bytes) {
     if (!modulos_variantes_creados_[indice]) {
       modulos_variantes_creados_[indice] = true;
-      VkShaderModuleCreateInfo info{};
-      info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-      info.codeSize = bytes;
-      info.pCode = spirv;
-      if (dfn_.vkCreateShaderModule(device_, &info, nullptr, &modulos_variantes_[indice]) != VK_SUCCESS) {
+      if (CrearModulo(spirv, bytes, &modulos_variantes_[indice]) != VK_SUCCESS) {
         modulos_variantes_[indice] = VK_NULL_HANDLE;
       }
     }
@@ -10622,12 +10660,8 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       return it->second;
     }
     const auto& spirv = entrada.shader->spirv;
-    VkShaderModuleCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    info.codeSize = spirv.size() * sizeof(uint32_t);
-    info.pCode = spirv.data();
     VkShaderModule modulo = VK_NULL_HANDLE;
-    if (dfn_.vkCreateShaderModule(device_, &info, nullptr, &modulo) != VK_SUCCESS) {
+    if (CrearModulo(spirv.data(), spirv.size() * sizeof(uint32_t), &modulo) != VK_SUCCESS) {
       modulo = VK_NULL_HANDLE;
     }
     modulos_.emplace(&entrada, modulo);
@@ -10644,11 +10678,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     const std::vector<uint32_t> podado = PodarEscriturasDeColor(entrada.shader->spirv, quitadas);
     VkShaderModule modulo = VK_NULL_HANDLE;
     if (!podado.empty()) {
-      VkShaderModuleCreateInfo info{};
-      info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-      info.codeSize = podado.size() * sizeof(uint32_t);
-      info.pCode = podado.data();
-      if (dfn_.vkCreateShaderModule(device_, &info, nullptr, &modulo) != VK_SUCCESS) {
+      if (CrearModulo(podado.data(), podado.size() * sizeof(uint32_t), &modulo) != VK_SUCCESS) {
         modulo = VK_NULL_HANDLE;
       }
     }
@@ -10672,11 +10702,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     const std::vector<uint32_t> parcheado = ConPruebasTempranas(entrada.shader->spirv, motivo);
     VkShaderModule modulo = VK_NULL_HANDLE;
     if (!parcheado.empty()) {
-      VkShaderModuleCreateInfo info{};
-      info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-      info.codeSize = parcheado.size() * sizeof(uint32_t);
-      info.pCode = parcheado.data();
-      if (dfn_.vkCreateShaderModule(device_, &info, nullptr, &modulo) != VK_SUCCESS) {
+      if (CrearModulo(parcheado.data(), parcheado.size() * sizeof(uint32_t), &modulo) != VK_SUCCESS) {
         modulo = VK_NULL_HANDLE;
       }
     }
@@ -11932,12 +11958,8 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     std::unordered_map<uint64_t, VkShaderModule> modulos;  // (variante << 32) | numero
     std::unordered_map<uint64_t, VkRenderPass> pases;       // by formats
     const auto crear = [&](const uint32_t* spirv, size_t bytes) {
-      VkShaderModuleCreateInfo info{};
-      info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-      info.codeSize = bytes;
-      info.pCode = spirv;
       VkShaderModule modulo = VK_NULL_HANDLE;
-      if (dfn_.vkCreateShaderModule(device_, &info, nullptr, &modulo) != VK_SUCCESS) {
+      if (CrearModulo(spirv, bytes, &modulo) != VK_SUCCESS) {
         modulo = VK_NULL_HANDLE;
       }
       return modulo;
@@ -12163,6 +12185,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   VkDeviceSize subida_tamano_real_ = 0;
   uint8_t* subida_datos_ = nullptr;
   VkDeviceAddress subida_direccion_ = 0;
+  bool spirv_13_ = false;  // Vulkan 1.1 device: the library's SPIR-V is converted to 1.3 (CrearModulo)
   VkDeviceSize subida_usado_ = 0;
   bool subida_coherente_ = false;
   uint64_t epoca_subida_ = 0;

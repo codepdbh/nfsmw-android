@@ -130,3 +130,35 @@ utilizado y la ultima pantalla que funciono.
 El joystick tactil puede utilizarse incluso con **Inclinar** activado:
 mientras se mantiene el dedo, manda el joystick; al soltarlo vuelve la
 inclinacion. Esto corrige que el ajuste de inclinacion bloqueara el arrastre.
+
+## Vulkan 1.1 y controladores sin shaderInt64 (v0.3.7, en prueba)
+
+Revisión de 112 ZIP de diagnóstico (0.3.5 y 0.3.6) y 961 issues, el 5 de octubre de 2026:
+
+- 394 reportes con Vulkan 1.1, 467 con 1.3. Las GPU más frecuentes: Mali-G57, Mali-G52, Adreno 610.
+- En Vulkan 1.2+ el bloqueo más común era `shaderInt64`: Adreno 720/740 (controlador 1.3.128) y Mali-G57/G68.
+- `No function registered at 8262E768` / `8262E9A8` no es un fallo del port: el `default.xex` es de otra
+  edición (ver `app/overrides.toml`). El launcher ahora lo detecta y lo explica antes de arrancar.
+- Muchos cierres de la 0.3.5 (`vertexPipelineStoresAndAtomics`) eran del modo compatibilidad (Xenos), que
+  los Mali no cumplen; el renderizador nativo no lo necesita desde la 0.3.6.
+
+Cambios:
+
+- **Shaders sin punteros de 64 bits.** `assets/shaders/shader_common.h` deja fijo el camino de constantes por
+  UBO, declara los push constants como `uint2` y anula `vk::RawBufferLoad`. El SPIR-V ya no usa `Int64`, `PhysicalStorageBufferAddresses`
+  ni el modelo de memoria `PhysicalStorageBuffer64` (las 152 entradas: solo `Shader`, `ImageQuery` y
+  `RuntimeDescriptorArray`). La biblioteca cambia de huella: PAL España `b84602ca…` (antes `a27aea23…`, la de
+  Switch). La app regenera las bibliotecas antiguas (`nfsmw_shaders.nfsp.version` = `sin-punteros-1`).
+- **El renderizador no exige `shaderInt64` ni buffer device address**; si existen se siguen habilitando.
+- **Vulkan 1.1.** El SDK pide `VK_EXT_descriptor_indexing` y activa las mismas cuatro funciones que en 1.2. El
+  SPIR-V 1.5 de la biblioteca se convierte a 1.3 al crear cada módulo (`app/src/nfsmw_spirv_vulkan11.h`):
+  versión y lista de interfaz del `OpEntryPoint`. Los 152 módulos convertidos pasan
+  `spirv-val --target-env vulkan1.1` (`tools/tests/spirv_vulkan11_test.cpp`).
+- `nfsmw_nativo_simular_vulkan11 = true` fuerza esa conversión y la ausencia de punteros en cualquier GPU,
+  para probar la ruta en un teléfono moderno.
+- La sonda del launcher exige Vulkan 1.1 + descriptor indexing (núcleo o extensión) en lugar de Vulkan 1.2,
+  y el informe incluye `shaderInt64`, el tipo de descriptor indexing y la lista de extensiones del controlador.
+
+Lo que sigue sin funcionar: Mali-G52/G72/G76 (Bifrost), Adreno 610 y PowerVR GE8320 no tienen descriptor indexing
+ni siquiera con controladores 1.3. El renderizador nativo actualiza sus montones de texturas mientras graba
+(`UPDATE_AFTER_BIND`, `PARTIALLY_BOUND`); para esas GPU haría falta otra gestión de descriptores.

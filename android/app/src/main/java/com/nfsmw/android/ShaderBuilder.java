@@ -41,10 +41,16 @@ import java.util.Map;
  * copied to assets/shaders) in a hidden WebView. The page and the game files are served under
  * https://appassets.androidplatform.net/ (a secure origin, which WebCrypto and ES modules need): the pages from
  * the APK assets, the game files streamed from the game folder. The finished library is checked against the
- * official SHA-256 in the page and written next to default.xex.
+ * SHA-256 expected for the Android library in the page and written next to default.xex, with its version
+ * (LIBRARY_VERSION) beside it.
  */
 final class ShaderBuilder {
     static final String LIBRARY = "nfsmw_shaders.nfsp";
+    // Version of assets/shaders/shader_common.h the library was built with, kept next to it. A library from an
+    // older version is built again: "sin-punteros-1" (v0.3.7) dropped the 64-bit pointer path, so the shaders
+    // run on Vulkan 1.1 and on drivers without shaderInt64.
+    static final String LIBRARY_VERSION = "sin-punteros-1";
+    private static final String VERSION_FILE = LIBRARY + ".version";
     private static final String TAG = "NFSMW";
     private static final String HOST = "appassets.androidplatform.net";
 
@@ -69,10 +75,19 @@ final class ShaderBuilder {
         this.listener = listener;
     }
 
-    /** Whether the game folder already has a library. */
+    /** Whether the game folder already has a library of the current version. */
     static boolean hasLibrary(File gameRoot) {
         File f = new File(gameRoot, LIBRARY);
-        return f.isFile() && f.length() > 24;
+        if (!f.isFile() || f.length() <= 24) {
+            return false;
+        }
+        try (InputStream in = new FileInputStream(new File(gameRoot, VERSION_FILE))) {
+            byte[] buffer = new byte[64];
+            int n = in.read(buffer);
+            return n > 0 && LIBRARY_VERSION.equals(new String(buffer, 0, n, "UTF-8").trim());
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -227,6 +242,10 @@ final class ShaderBuilder {
                 }
                 if (!temp.renameTo(target)) {
                     throw new IOException("no se pudo guardar " + LIBRARY);
+                }
+                try (FileOutputStream out = new FileOutputStream(new File(gameRoot, VERSION_FILE))) {
+                    out.write(LIBRARY_VERSION.getBytes("UTF-8"));
+                    out.getFD().sync();
                 }
                 Log.i(TAG, "[shaders] " + LIBRARY + " " + bytes.length + " bytes, SHA-256 " + sha256 +
                         (edition.isEmpty() ? "" : " (" + edition + ")"));

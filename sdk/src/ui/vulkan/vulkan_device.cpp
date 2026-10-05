@@ -195,10 +195,14 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
     // #238.
     XE_UI_VULKAN_STRUCT_EXTENSION(EXT_memory_budget)
   }
+  bool ext_1_2_EXT_descriptor_indexing = false;
   if (get_physical_device_properties2_supported && REXCVAR_GET(vulkan_native_shader_features)) {
     // #456. NFSMW native renderer: dynamic blending and color write masks. Its three features are
     // enabled further down, only if the device provides them.
     XE_UI_VULKAN_STRUCT_EXTENSION(EXT_extended_dynamic_state3)
+    // #162. NFSMW native renderer on Vulkan 1.1 drivers: the texture heaps (runtime arrays, partially bound,
+    // updated after bind). Core in 1.2; its dependency VK_KHR_maintenance3 is core in 1.1.
+    XE_UI_VULKAN_LOCAL_PROMOTED_EXTENSION(EXT_descriptor_indexing, 1, 2)
   }
   if (properties.apiVersion >= VK_MAKE_API_VERSION(0, 1, 1, 0)) {
     // #414.
@@ -345,6 +349,9 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
                  VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT>
       features_EXT_robustness2;
   // Native renderer of NFSMW.
+  VulkanFeatures<VkPhysicalDeviceDescriptorIndexingFeatures,
+                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES>
+      features_1_2_EXT_descriptor_indexing;
   VulkanFeatures<VkPhysicalDeviceExtendedDynamicState3FeaturesEXT,
                  VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT>
       features_EXT_extended_dynamic_state3;
@@ -352,6 +359,8 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
   if (get_physical_device_properties2_supported) {
     if (properties.apiVersion >= VK_MAKE_API_VERSION(0, 1, 2, 0)) {
       features_1_2.Link(supported_features_2, device_create_info);
+    } else if (ext_1_2_EXT_descriptor_indexing) {
+      features_1_2_EXT_descriptor_indexing.Link(supported_features_2, device_create_info);
     }
     if (properties.apiVersion >= VK_MAKE_API_VERSION(0, 1, 3, 0)) {
       features_1_3.Link(supported_features_2, device_create_info);
@@ -670,11 +679,6 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
       XE_UI_VULKAN_FEATURE_2(features_1_2, scalarBlockLayout);
     }
     if (REXCVAR_GET(vulkan_native_shader_features)) {
-      XE_UI_VULKAN_FEATURE(shaderInt64)
-      XE_UI_VULKAN_FEATURE(shaderSampledImageArrayDynamicIndexing)
-      // Fragments and vertices shaded per pass (pipeline statistics for the native
-      // renderer). Without the feature the query pool cannot be created.
-      XE_UI_VULKAN_FEATURE(pipelineStatisticsQuery)
       XE_UI_VULKAN_FEATURE_2(features_1_2, bufferDeviceAddress);
       XE_UI_VULKAN_FEATURE_2(features_1_2, runtimeDescriptorArray);
       // Native renderer: unbounded textures and samplers that are added while the
@@ -682,15 +686,32 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
       XE_UI_VULKAN_FEATURE_2(features_1_2, descriptorBindingPartiallyBound);
       XE_UI_VULKAN_FEATURE_2(features_1_2, descriptorBindingSampledImageUpdateAfterBind);
       XE_UI_VULKAN_FEATURE_2(features_1_2, descriptorBindingUpdateUnusedWhilePending);
-      if (!with_gpu_emulation) {
-        XE_UI_VULKAN_FEATURE(independentBlend)
-        XE_UI_VULKAN_FEATURE(samplerAnisotropy)
-        XE_UI_VULKAN_FEATURE(fullDrawIndexUint32)
-      }
     }
   } else {
     if (ext_1_2_KHR_sampler_mirror_clamp_to_edge) {
       XE_UI_VULKAN_FEATURE_IMPLIED(samplerMirrorClampToEdge)
+    }
+    if (ext_1_2_EXT_descriptor_indexing && REXCVAR_GET(vulkan_native_shader_features)) {
+      XE_UI_VULKAN_FEATURE_2(features_1_2_EXT_descriptor_indexing, runtimeDescriptorArray);
+      XE_UI_VULKAN_FEATURE_2(features_1_2_EXT_descriptor_indexing, descriptorBindingPartiallyBound);
+      XE_UI_VULKAN_FEATURE_2(features_1_2_EXT_descriptor_indexing,
+                             descriptorBindingSampledImageUpdateAfterBind);
+      XE_UI_VULKAN_FEATURE_2(features_1_2_EXT_descriptor_indexing,
+                             descriptorBindingUpdateUnusedWhilePending);
+    }
+  }
+  if (REXCVAR_GET(vulkan_native_shader_features)) {
+    // Native renderer, any API version. shaderInt64 is optional since the shaders stopped reading constants
+    // through 64-bit pointers; it is still enabled when present.
+    XE_UI_VULKAN_FEATURE(shaderInt64)
+    XE_UI_VULKAN_FEATURE(shaderSampledImageArrayDynamicIndexing)
+    // Fragments and vertices shaded per pass (pipeline statistics for the native
+    // renderer). Without the feature the query pool cannot be created.
+    XE_UI_VULKAN_FEATURE(pipelineStatisticsQuery)
+    if (!with_gpu_emulation) {
+      XE_UI_VULKAN_FEATURE(independentBlend)
+      XE_UI_VULKAN_FEATURE(samplerAnisotropy)
+      XE_UI_VULKAN_FEATURE(fullDrawIndexUint32)
     }
   }
 

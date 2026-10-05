@@ -200,27 +200,46 @@ public final class MainActivity extends Activity {
         launchGame.setEnabled(false);
         Diagnostics.recordLaunch(this);
         importer.execute(() -> {
+            GameEdition edition = GameEdition.of(this, sharedGameRoot());
             String problem = "nativo".equals(GameOptions.get(this, GameOptions.RENDERER))
                     ? Diagnostics.incompatibility() : null;
             mainHandler.post(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 launchGame.setEnabled(true);
-                if (problem != null) {
+                if (edition != null && !edition.supported()) {
+                    // Another edition closes at once with "No function registered at 8262E768" (or 8262E9A8).
                     new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                            .setTitle("Probar otro renderizador")
-                            .setMessage(problem + "\n\nPuedes probar el modo de compatibilidad experimental. Puede tener errores gráficos o funcionar más lento.")
-                            .setPositiveButton("Probar compatibilidad", (dialog, which) -> {
-                                GameOptions.set(this, GameOptions.RENDERER, "xenos");
-                                refreshOptions();
-                                playCompatibleGame();
-                            })
-                            .setNeutralButton("Enviar diagnóstico", (dialog, which) -> chooseReportDestination())
-                            .setNegativeButton("Volver", null).show();
-                } else {
-                    playCompatibleGame();
+                            .setTitle("Edición del juego no compatible")
+                            .setMessage("Tu default.xex es de la edición " + edition.describe() + ". Esta versión "
+                                    + "de la app está recompilada a partir de la edición " + GameEdition.SUPPORTED_NAME
+                                    + " y con otra edición el juego se cierra al arrancar.\n\nUsa una copia de la edición "
+                                    + GameEdition.SUPPORTED_NAME + " (el SHA-256 de su default.xex empieza por "
+                                    + GameEdition.SUPPORTED_SHA256.substring(0, 12) + ").")
+                            .setPositiveButton("Volver", null)
+                            .setNeutralButton("Jugar igualmente", (dialog, which) -> continuePlay(problem))
+                            .show();
+                    return;
                 }
+                continuePlay(problem);
             });
         });
+    }
+
+    private void continuePlay(String problem) {
+        if (problem == null) {
+            playCompatibleGame();
+            return;
+        }
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Probar otro renderizador")
+                .setMessage(problem + "\n\nPuedes probar el modo de compatibilidad experimental. Puede tener errores gráficos o funcionar más lento.")
+                .setPositiveButton("Probar compatibilidad", (dialog, which) -> {
+                    GameOptions.set(this, GameOptions.RENDERER, "xenos");
+                    refreshOptions();
+                    playCompatibleGame();
+                })
+                .setNeutralButton("Enviar diagnóstico", (dialog, which) -> chooseReportDestination())
+                .setNegativeButton("Volver", null).show();
     }
 
     private void playCompatibleGame() {

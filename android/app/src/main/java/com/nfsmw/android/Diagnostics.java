@@ -68,7 +68,15 @@ final class Diagnostics {
         return "NFSMW Android Evolved " + version + "\nTeléfono: " + Build.MANUFACTURER + " " + Build.MODEL
                 + "\nAndroid: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")"
                 + "\nGPU: " + device.optString("gpu", "no disponible")
-                + "\nVulkan: " + device.optString("vulkan", "no disponible") + "\n";
+                + "\nVulkan: " + device.optString("vulkan", "no disponible")
+                + "\nEdición del juego: " + editionLine(context) + "\n";
+    }
+
+    private static String editionLine(Context context) {
+        GameEdition edition = GameEdition.of(context,
+                new File(android.os.Environment.getExternalStorageDirectory(), MainActivity.GAME_FOLDER_NAME));
+        if (edition == null) return "sin default.xex";
+        return edition.describe() + (edition.supported() ? "" : " (no compatible, SHA-256 " + edition.sha256.substring(0, 12) + ")");
     }
 
     static void recordLaunch(Context context) {

@@ -65,12 +65,21 @@
 
 #ifdef __spirv__
 
+// NFSMW (Vulkan 1.1): sin punteros de 64 bits. Las constantes llegan siempre por los UBO del conjunto 4,
+// asi que los tres campos solo conservan el tamano del bloque de push constants (24 bytes) y la rama de
+// vk::RawBufferLoad de las macros del traductor queda muerta: el SPIR-V no necesita Int64 ni buffer device address.
 struct PushConstants
 {
-    uint64_t VertexShaderConstants;
-    uint64_t PixelShaderConstants;
-    uint64_t SharedConstants;
+    uint2 VertexShaderConstants;
+    uint2 PixelShaderConstants;
+    uint2 SharedConstants;
 };
+namespace vk
+{
+    template<typename T> T NfsmwSinPuntero(uint2 direccion) { return (T)0; }
+    template<typename T> T NfsmwSinPuntero(uint2 direccion, uint alineacion) { return (T)0; }
+}
+#define RawBufferLoad NfsmwSinPuntero
 
 [[vk::push_constant]] ConstantBuffer<PushConstants> g_PushConstants;
 
@@ -83,7 +92,7 @@ struct NfsmwBloqueCompartidas { float4 v[23]; };
 [[vk::binding(0, 4)]] ConstantBuffer<NfsmwBloqueVs> g_UboVertex;
 [[vk::binding(1, 4)]] ConstantBuffer<NfsmwBloquePs> g_UboPixel;
 [[vk::binding(2, 4)]] ConstantBuffer<NfsmwBloqueCompartidas> g_UboCompartidas;
-#define NFSMW_UBO ((g_SpecConstants & SPEC_CONSTANT_CONSTANTES_UBO) != 0)
+#define NFSMW_UBO true
 #define NFSMW_COMPARTIDA_UINT(B)  asuint(g_UboCompartidas.v[(B) / 16][((B) % 16) / 4])
 #define NFSMW_COMPARTIDA_FLOAT(B) g_UboCompartidas.v[(B) / 16][((B) % 16) / 4]
 
@@ -289,7 +298,7 @@ float4 tfetchR11G11B10(uint4 value)
 
 float4 tfetchTexcoord(uint swappedTexcoords, float4 value, uint semanticIndex)
 {
-    return (swappedTexcoords & (1ull << semanticIndex)) != 0 ? value.yxwz : value;
+    return (semanticIndex < 32 && (swappedTexcoords & (1u << semanticIndex)) != 0) ? value.yxwz : value;
 }
 
 // NFSMW: 3 bits por componente: 0-3 = componente del dato, 4 = 0, 5 = 1, 7 = el mismo.

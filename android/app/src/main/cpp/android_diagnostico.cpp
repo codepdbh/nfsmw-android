@@ -50,28 +50,50 @@ std::string Probe() {
   VkPhysicalDeviceFeatures features{};
   vkGetPhysicalDeviceProperties(gpu, &props);
   vkGetPhysicalDeviceFeatures(gpu, &features);
-  VkPhysicalDeviceVulkan12Features v12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
-  VkPhysicalDeviceFeatures2 fs{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-  if (props.apiVersion >= VK_API_VERSION_1_2) {
-    fs.pNext = &v12;
+  // Device extensions: whether descriptor indexing exists on a 1.1 driver, and the list for the report.
+  std::vector<std::string> extensions;
+  {
+    uint32_t n = 0;
+    if (vkEnumerateDeviceExtensionProperties(gpu, nullptr, &n, nullptr) == VK_SUCCESS && n) {
+      std::vector<VkExtensionProperties> list(n);
+      if (vkEnumerateDeviceExtensionProperties(gpu, nullptr, &n, list.data()) == VK_SUCCESS) {
+        for (uint32_t i = 0; i < n; ++i) extensions.emplace_back(list[i].extensionName);
+      }
+    }
+  }
+  const auto has_extension = [&](const char* name) {
+    for (const auto& e : extensions) {
+      if (e == name) return true;
+    }
+    return false;
+  };
+  // The native renderer's texture heaps: Vulkan 1.2 core, or VK_EXT_descriptor_indexing on a 1.1 driver
+  // (the SDK enables either; the library's SPIR-V is converted to 1.3 for 1.1).
+  VkPhysicalDeviceDescriptorIndexingFeatures indexing{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES};
+  const bool indexing_extension = props.apiVersion < VK_API_VERSION_1_2 &&
+                                  has_extension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+  if (props.apiVersion >= VK_API_VERSION_1_1) {
+    VkPhysicalDeviceFeatures2 fs{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    fs.pNext = &indexing;
     auto query = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
         vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
-    if (query) query(gpu, &fs);
+    if (query && (props.apiVersion >= VK_API_VERSION_1_2 || indexing_extension)) query(gpu, &fs);
   }
   std::vector<std::string> missing;
   auto require = [&](bool supported, const char* name) {
     if (!supported) missing.emplace_back(name);
   };
-  // The SDK currently enables the native shader interface through Vulkan 1.2.
-  require(props.apiVersion >= VK_API_VERSION_1_2, "Vulkan 1.2 o posterior");
+  // Since v0.3.7 the native shaders need neither shaderInt64 nor buffer device address, and Vulkan 1.1 is
+  // enough when the driver has VK_EXT_descriptor_indexing.
+  require(props.apiVersion >= VK_API_VERSION_1_1, "Vulkan 1.1 o posterior");
+  require(props.apiVersion >= VK_API_VERSION_1_2 || indexing_extension,
+          "VK_EXT_descriptor_indexing (Vulkan 1.1) o Vulkan 1.2");
   require(features.independentBlend, "independentBlend");
-  require(features.shaderInt64, "shaderInt64");
   require(features.shaderSampledImageArrayDynamicIndexing, "shaderSampledImageArrayDynamicIndexing");
-  require(v12.bufferDeviceAddress, "bufferDeviceAddress (interfaz Vulkan 1.2)");
-  require(v12.runtimeDescriptorArray, "runtimeDescriptorArray");
-  require(v12.descriptorBindingPartiallyBound, "descriptorBindingPartiallyBound");
-  require(v12.descriptorBindingSampledImageUpdateAfterBind, "descriptorBindingSampledImageUpdateAfterBind");
-  require(v12.descriptorBindingUpdateUnusedWhilePending, "descriptorBindingUpdateUnusedWhilePending");
+  require(indexing.runtimeDescriptorArray, "runtimeDescriptorArray");
+  require(indexing.descriptorBindingPartiallyBound, "descriptorBindingPartiallyBound");
+  require(indexing.descriptorBindingSampledImageUpdateAfterBind, "descriptorBindingSampledImageUpdateAfterBind");
+  require(indexing.descriptorBindingUpdateUnusedWhilePending, "descriptorBindingUpdateUnusedWhilePending");
   std::ostringstream formats;
   std::ostringstream conversions;
   conversions << '[';
@@ -114,6 +136,9 @@ std::string Probe() {
          << ",\"vendorId\":" << props.vendorID
          << ",\"textureFormats\":" << formats.str()
          << ",\"cpuTextureConversions\":" << conversions.str()
+         << ",\"shaderInt64\":" << (features.shaderInt64 ? "true" : "false")
+         << ",\"descriptorIndexing\":" << Json(props.apiVersion >= VK_API_VERSION_1_2 ? "core"
+                                                  : indexing_extension ? "extension" : "none")
          << ",\"vertexPipelineStoresAndAtomics\":" << (features.vertexPipelineStoresAndAtomics ? "true" : "false")
          << ",\"fragmentStoresAndAtomics\":" << (features.fragmentStoresAndAtomics ? "true" : "false")
          << ",\"occlusionQueriesDefault\":" << Json(props.vendorID == 0x13B5 ? "off" : "on")
@@ -122,6 +147,11 @@ std::string Probe() {
   for (size_t i = 0; i < missing.size(); ++i) {
     if (i) output << ',';
     output << Json(missing[i]);
+  }
+  output << "],\"extensions\":[";
+  for (size_t i = 0; i < extensions.size(); ++i) {
+    if (i) output << ',';
+    output << Json(extensions[i]);
   }
   output << "]}";
   vkDestroyInstance(instance, nullptr);
