@@ -162,3 +162,15 @@ Cambios:
 Lo que sigue sin funcionar: Mali-G52/G72/G76 (Bifrost), Adreno 610 y PowerVR GE8320 no tienen descriptor indexing
 ni siquiera con controladores 1.3. El renderizador nativo actualiza sus montones de texturas mientras graba
 (`UPDATE_AFTER_BIND`, `PARTIALLY_BOUND`); para esas GPU haría falta otra gestión de descriptores.
+
+## Idioma de los textos (v0.3.7, en prueba)
+
+El disco PAL España trae los textos de diez idiomas (`LANGUAGES\*.BIN`, comprobados en el índice `ZDIR.BIN`).
+La edición la fija el ejecutable: al arrancar `sub_823B48A0` llama a `SetCurrentLanguage` (`sub_822BCBD0`) con
+4 (español). `app/src/nfsmw_idioma.cpp` cambia esa primera llamada por `nfsmw_idioma` si el archivo de ese
+idioma está en el disco (la misma comprobación que el selector del juego, `sub_823BCBC8`). El launcher lo
+ofrece como **Idioma de los textos**. Voces y vídeos siguen en el idioma del disco. Tras añadir el gancho se
+regeneraron las llamadas directas (`tools/llamadas_directas.py --deshacer` y de nuevo sin opciones).
+
+Comprobado en el Galaxy S25 Ultra el 5 de octubre: la biblioteca sin punteros se regenera en el teléfono con
+el mismo SHA-256 que en el PC (`b84602ca…`) y la carrera se dibuja igual (1,8 millones de dibujos, 0 rechazados).

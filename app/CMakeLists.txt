@@ -115,6 +115,8 @@ set(NFSMW_SOURCES
     # The streamer requests the zone too late: facade popping and a hitch when entering a new
     # zone (hook on TrackStreamer::GetPredictedZone).
     src/nfsmw_streaming_anticipacion.cpp
+    # Language of the game text on multi-language discs (cvar nfsmw_idioma).
+    src/nfsmw_idioma.cpp
     # Automated tests on PC: virtual gamepad driven by a script (nfsmw_prueba_botones).
     src/nfsmw_prueba_entrada.cpp
     # Internal resolution and FPS limit in the menu (F4) that work with the native renderer, with the

@@ -74,6 +74,12 @@ final class GameOptions {
             new Option("sky", "Resplandor del cielo", "nfsmw_resplandor_cielo", "natural",
                     new String[] {"original", "natural", "suave"},
                     new String[] {"Original (Xbox 360)", "Natural", "Suave"}),
+            // The PAL discs carry the text of these ten languages (app/src/nfsmw_idioma.cpp). Speech and movies
+            // stay in the disc's language.
+            new Option("language", "Idioma de los textos", "nfsmw_idioma", "-1",
+                    new String[] {"-1", "4", "0", "1", "2", "3", "5", "6", "7", "12", "13"},
+                    new String[] {"El de la edición", "Español", "English", "Français", "Deutsch", "Italiano",
+                            "Nederlands", "Svenska", "Dansk", "Polski", "Suomi"}),
             new Option("volume", "Volumen del juego", "audio_ganancia_pct", "100",
                     new String[] {"100", "125", "150", "200"},
                     new String[] {"Normal", "Alto", "Muy alto", "Máximo · puede saturar"}),
