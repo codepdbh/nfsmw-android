@@ -765,11 +765,16 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
     // data, so it is not distributed). Without it the game still runs, without identification.
     // Next to the executable (the app folder on Android) or, failing that, with the game files, where it
     // is easier to copy on a phone.
-    std::filesystem::path biblioteca = rex::filesystem::GetExecutableFolder() / "nfsmw_shaders.nfsp";
+#if defined(NFSC_RECOMP)
+    constexpr const char* kNombreBiblioteca = "nfscarbon_shaders.nfsp";
+#else
+    constexpr const char* kNombreBiblioteca = "nfsmw_shaders.nfsp";
+#endif
+    std::filesystem::path biblioteca = rex::filesystem::GetExecutableFolder() / kNombreBiblioteca;
     if (std::error_code ec; !std::filesystem::is_regular_file(biblioteca, ec)) {
       const std::string juego = rex::cvar::GetFlagByName("game_data_root");
-      if (!juego.empty() && std::filesystem::is_regular_file(std::filesystem::path(juego) / "nfsmw_shaders.nfsp", ec)) {
-        biblioteca = std::filesystem::path(juego) / "nfsmw_shaders.nfsp";
+      if (!juego.empty() && std::filesystem::is_regular_file(std::filesystem::path(juego) / kNombreBiblioteca, ec)) {
+        biblioteca = std::filesystem::path(juego) / kNombreBiblioteca;
       }
     }
     if (shaders_.Cargar(biblioteca)) {
@@ -1060,7 +1065,14 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
         std::memcpy(&v, base_virtual + d, sizeof(v));
         return __builtin_bswap32(v);
       };
+#if defined(NFSC_RECOMP)
+      // Most Wanted's globals (the renderer object and its AA mode): not mapped in NFS Carbon.
+      const uint32_t renderizador = 0;
+      const auto leer_juego = [](uint32_t) { return uint32_t(0); };
+#else
       const uint32_t renderizador = leer_be(0x82A2D1AC);
+      const auto& leer_juego = leer_be;
+#endif
       const uint32_t info = Registro(rex::graphics::XE_GPU_REG_RB_SURFACE_INFO);
       REXLOG_INFO("[nativo] C2 oclusion {}: ZPD en {:08X} ({}), marcas aqui {} y 32 antes {}; muestras del host {} ({}), "
                   "escala {}, escritas {}; bins {:016X}/{:016X}; RB_SURFACE_INFO {:08X} (pitch {}, MSAA {}), "
@@ -1068,7 +1080,7 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
                   avisos_oclusion_, direccion, que, marcas_aqui, marcas_antes, medidas, medida ? "medidas" : "sin medida",
                   escala, escrita == UINT32_MAX ? -1 : int64_t(escrita), bin_select_, bin_mask_, info, info & 0x3FFF,
                   (info >> 16) & 0x3, Registro(rex::graphics::XE_GPU_REG_RB_DEPTH_INFO),
-                  renderizador ? int64_t(leer_be(renderizador)) : -1, leer_be(0x82A2CEE4));
+                  renderizador ? int64_t(leer_juego(renderizador)) : -1, leer_juego(0x82A2CEE4));
     }
   }
 
@@ -3085,6 +3097,17 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
     }
     if (!vs_actual_) {
       ++dibujos_sin_vs_;
+#if defined(NFSC_RECOMP)
+      // NFS Carbon diagnostics: which loaded vertex shaders the draws without a VS use.
+      if (sin_vs_detalle_.size() < 256 || sin_vs_detalle_.count(HuellaVs())) {
+        DetalleSinVs& d = sin_vs_detalle_[HuellaVs()];
+        ++d.dibujos;
+        d.palabras = uint32_t(vs_microcodigo_.size());
+        d.ps = ps_actual_ ? int32_t(ps_actual_->numero) : -1;
+        d.tipo = Registro(rex::graphics::XE_GPU_REG_VGT_DRAW_INITIATOR) & 0x3F;
+        d.cuenta = Registro(rex::graphics::XE_GPU_REG_VGT_DRAW_INITIATOR) >> 16;
+      }
+#endif
     } else if (!ps_actual_) {
       ++dibujos_sin_ps_;
     } else {
@@ -3150,7 +3173,8 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
     // queried on every loop iteration, and there are ~2,200 draws per frame.
     const size_t candidatos = std::min<size_t>(pendientes_.size(), 8);
     for (size_t i = 0; i < candidatos; ++i) {
-      if (pendientes_[i].args[0] != tipo || CuentaDelRegistro(pendientes_[i]) != cuenta) {
+      if (pendientes_[i].funcion != FuncionDibujo::kCualquiera &&
+          (pendientes_[i].args[0] != tipo || CuentaDelRegistro(pendientes_[i]) != cuenta)) {
         continue;
       }
       // Type and count are not enough: in a series of identical draws, a record
@@ -4429,6 +4453,20 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
                   "ambiguos={}; dibujos con VS y PS={} sin VS={} sin PS={}; pares VS/PS={}",
                   e.cargas + cargas_cacheadas_, e.distintos, e.identificados, e.sin_identificar, e.ambiguos,
                   dibujos_identificados_, dibujos_sin_vs_, dibujos_sin_ps_, pares_.size());
+#if defined(NFSC_RECOMP)
+      {
+        std::vector<std::pair<uint64_t, DetalleSinVs>> lista(sin_vs_detalle_.begin(), sin_vs_detalle_.end());
+        std::sort(lista.begin(), lista.end(),
+                  [](const auto& a, const auto& b) { return a.second.dibujos > b.second.dibujos; });
+        std::string texto;
+        for (size_t i = 0; i < lista.size() && i < 8; ++i) {
+          const DetalleSinVs& d = lista[i].second;
+          texto += fmt::format(" VS {:016X} ({} palabras): {} dibujos, PS n{}, tipo {}, cuenta {};", lista[i].first,
+                               d.palabras, d.dibujos, d.ps, d.tipo, d.cuenta);
+        }
+        NFSMW_INFORME_SEGUN(diferir_informe, "[nativo] C5a dibujos sin VS por microcodigo:{}", texto);
+      }
+#endif
       // IM_LOAD without memcmp (CargarShaderCacheado).
       {
         const uint64_t sin_memcmp = im_i_sin_memcmp_;
@@ -4603,6 +4641,16 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
   std::vector<uint32_t> microcodigo_;
   uint64_t dibujos_identificados_ = 0;
   uint64_t dibujos_sin_vs_ = 0;
+#if defined(NFSC_RECOMP)
+  struct DetalleSinVs {
+    uint64_t dibujos = 0;
+    uint32_t palabras = 0;
+    int32_t ps = -1;
+    uint32_t tipo = 0;
+    uint32_t cuenta = 0;
+  };
+  std::unordered_map<uint64_t, DetalleSinVs> sin_vs_detalle_;
+#endif
   uint64_t dibujos_sin_ps_ = 0;
   std::unordered_set<uint64_t> pares_;
   // Step C5b: matching with the game's Draw* calls (ring thread only).

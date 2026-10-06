@@ -49,8 +49,15 @@ namespace {
 
 // Where SetVertexShader (sub_8259C2A8) and SetPixelShader (sub_8259BDC0) store the bound shader inside
 // the device object (from the recompiled code).
+#if defined(NFSC_RECOMP)
+// NFS Carbon: SetVertexShader (sub_826E4790) and SetPixelShader (sub_826E4350); the inlined FlushState reads the
+// same words (sub_826FBB68).
+constexpr uint32_t kDispositivoVs = 0x3080;
+constexpr uint32_t kDispositivoPs = 0x307C;
+#else
 constexpr uint32_t kDispositivoVs = 0x4FE8;
 constexpr uint32_t kDispositivoPs = 0x3290;
+#endif
 
 // One producer (the thread using D3D) and one consumer (the ring thread).
 constexpr uint32_t kTamanoCola = uint32_t(1) << 16;
@@ -203,7 +210,10 @@ const EntradaShader* IdentificarCreacion(const uint8_t* base, uint32_t direccion
     return nullptr;
   }
   const uint8_t* p = base + direccion;
-  if (LeerBE(p) != (vertices ? 0x102A0E01u : 0x102A0E00u)) {
+  // 2005 container (Most Wanted) or 2008 (NFS Carbon), contiguous in both games.
+  const uint32_t firma = LeerBE(p);
+  if ((firma != 0x102A0E00u && firma != 0x102A1100u && firma != 0x102A0E01u && firma != 0x102A1101u) ||
+      (firma & 1) != uint32_t(vertices)) {
     return nullptr;
   }
   const uint64_t total = uint64_t(LeerBE(p + 4)) + LeerBE(p + 8);
@@ -971,7 +981,8 @@ EstadisticasGanchos EstadisticasDeGanchos() {
 
 // The experimental library (nfsmw_shader_hooks.cpp) hooks the same constructors; with it enabled these
 // are not compiled.
-#if !defined(NFSMW_NATIVE_SHADER_LIBRARY)
+// NFS Carbon has its own hooks (nfscarbon-recomp/src/carbon_nativo_ganchos.cpp): these addresses are Most Wanted's.
+#if !defined(NFSMW_NATIVE_SHADER_LIBRARY) && !defined(NFSC_RECOMP)
 // r3 = original container; they return the object in r3. The original is always called and no PPC
 // register is touched.
 REX_EXTERN(__imp__sub_8259BC90);
@@ -1007,6 +1018,7 @@ REX_HOOK_RAW(sub_8259C038) {  // vertex shader
  * switch off with DIFERENCIA).
  * It changes no PPC register.
  */
+#if !defined(NFSC_RECOMP)
 REX_EXTERN(__imp__sub_825A2FB8);
 REX_HOOK_RAW(sub_825A2FB8) {
   namespace mc = nfsmw::nativo::microcodigo;
@@ -1033,3 +1045,4 @@ REX_HOOK_RAW(sub_825A2FB8) {
   }
   mc::TerminarEscritura(ranura);
 }
+#endif  // !NFSC_RECOMP

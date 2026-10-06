@@ -73,28 +73,44 @@ bool NombreEs(const Contenedor& c, size_t posicion, const char* nombre) {
 const char* Leer(const nfsmw::native::Shader& shader, EntradaShader& e) {
   const Contenedor c{shader.original};
   if (!c.Hay(0, 24)) return "contenedor demasiado corto";
+  // NFS Carbon uses the 2008 container (XenosRecomp shader.h ShaderContainer): 36-byte header with the shader
+  // header at +24, and the microcode is the shader's physicalOffset/size inside the physical part. The CTAB is
+  // at the same distance from the table offset in both formats.
+  const bool formato2008 = (c.U32(0) & ~1u) == 0x102A1100u;
+  if (formato2008 && !c.Hay(0, 36)) return "contenedor demasiado corto";
   const uint32_t virtuales = c.U32(4);
   const uint32_t fisicos = c.U32(8);
   const uint32_t tabla = c.U32(16);
-  const uint32_t cabecera = c.U32(20);
+  const uint32_t cabecera = c.U32(formato2008 ? 24 : 20);
   if (!fisicos || (fisicos % 4) || !c.Hay(virtuales, fisicos)) {
     return "microcodigo fuera del contenedor";
   }
   if (cabecera >= virtuales || size_t(cabecera) + (shader.vertices ? 40 : 32) > virtuales) {
     return "cabecera del shader fuera de la parte virtual";
   }
+  size_t inicio_microcodigo = virtuales;
+  uint32_t bytes_microcodigo = fisicos;
+  if (formato2008) {
+    const uint32_t desplazamiento = c.U32(cabecera);
+    bytes_microcodigo = c.U32(cabecera + 4);
+    if (!bytes_microcodigo || (bytes_microcodigo % 12) || desplazamiento > fisicos ||
+        bytes_microcodigo > fisicos - desplazamiento) {
+      return "microcodigo fuera de la parte fisica";
+    }
+    inicio_microcodigo += desplazamiento;
+  }
 
   e.vertices = shader.vertices;
-  e.microcodigo.resize(fisicos / 4);
+  e.microcodigo.resize(bytes_microcodigo / 4);
   for (size_t i = 0; i < e.microcodigo.size(); ++i) {
-    e.microcodigo[i] = c.U32(size_t(virtuales) + i * 4);
+    e.microcodigo[i] = c.U32(inicio_microcodigo + i * 4);
   }
 
   if (e.vertices) {
-    // List at +0x28, after skipping the words at +0x18; +0x1C = element count.
+    // List at +0x28 (2008: +0x24), after skipping the words at +0x18; +0x1C = element count.
     const uint32_t previos = c.U32(cabecera + 24);
     const uint32_t cantidad = c.U32(cabecera + 28);
-    const size_t comienzo = size_t(cabecera) + 40 + size_t(previos) * 4;
+    const size_t comienzo = size_t(cabecera) + (formato2008 ? 36 : 40) + size_t(previos) * 4;
     if (cantidad > 64 || previos > 1024 || comienzo + size_t(cantidad) * 4 > virtuales) {
       return "elementos de vertices fuera de la parte virtual";
     }
@@ -357,7 +373,36 @@ const EntradaShader* ShadersNativos::Identificar(bool vertices,
       }
       if (XXH3_64bits(d.temporal.data(), d.temporal.size() * sizeof(uint32_t)) != e.huella ||
           d.temporal != e.microcodigo) {
+#if defined(NFSC_RECOMP)
+        // NFS Carbon's D3D rewrites more of the vertex fetches in the microcode it loads: each one's destination
+        // swizzle (the draw remaps it from the original, CodigoRemapeo) and their order (it sorts them, so
+        // another fetch can end up writing a given register; the draw finds each element by its register).
+        // The identification compares every other word exactly and the fetches as a set of opcode and
+        // registers.
+        bool igual = true;
+        std::vector<uint32_t> fetch_entrante, fetch_entrada;
+        for (size_t i = 0; igual && i < d.temporal.size(); ++i) {
+          bool es_fetch = false;
+          for (const ElementoVertice& elemento : e.elementos) {
+            const size_t p = size_t(elemento.instruccion) * 3;
+            if (i >= p && i < p + 3) {
+              es_fetch = true;
+              if (i == p) {
+                fetch_entrante.push_back(microcodigo[i] & kFetchConserva[0]);
+                fetch_entrada.push_back(e.microcodigo[i] & kFetchConserva[0]);
+              }
+            }
+          }
+          igual = es_fetch || microcodigo[i] == e.microcodigo[i];
+        }
+        std::sort(fetch_entrante.begin(), fetch_entrante.end());
+        std::sort(fetch_entrada.begin(), fetch_entrada.end());
+        if (!igual || fetch_entrante != fetch_entrada) {
+          continue;
+        }
+#else
         continue;
+#endif
       }
       if (!elegido) {
         elegido = &e;
@@ -367,7 +412,12 @@ const EntradaShader* ShadersNativos::Identificar(bool vertices,
   }
 
   // Vertex shaders arrive patched: a mismatch is normal.
+#if defined(NFSC_RECOMP)
+  // NFS Carbon: the unidentified vertex shaders are still being diagnosed.
+  const bool avisar = d.avisos < kMaxAvisos;
+#else
   const bool avisar = d.avisos < kMaxAvisos && !vertices;
+#endif
   if (elegido) {
     ++d.estadisticas.identificados;
     if (coincidencias > 1) {
@@ -398,6 +448,15 @@ const EntradaShader* ShadersNativos::Identificar(bool vertices,
                   "({} contenedores de ese tipo y longitud)",
                   vertices ? "vertex" : "pixel", microcodigo.size(), clave.huella,
                   c != d.candidatos.end() ? c->second.size() : 0);
+#if defined(NFSC_RECOMP)
+      if (microcodigo.size() <= 96) {
+        std::string palabras;
+        for (const uint32_t w : microcodigo) {
+          palabras += fmt::format(" {:08X}", w);
+        }
+        REXLOG_WARN("[nativo] C5a:   microcodigo:{}", palabras);
+      }
+#endif
       // Diagnostics: which words change against the containers of the same
       // length (incoming / container original, without the mask).
       for (size_t k = 0; c != d.candidatos.end() && k < c->second.size() && k < 2; ++k) {

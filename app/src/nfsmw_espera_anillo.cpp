@@ -106,6 +106,8 @@ bool EsperarProgresoAnillo(uint32_t visto, std::chrono::microseconds limite) {
 
 }  // namespace nfsmw::nativo
 
+// Most Wanted's D3D waits. NFS Carbon hooks its own (nfscarbon-recomp, carbon_graphics.cpp).
+#if !defined(NFSC_RECOMP)
 namespace {
 
 constexpr uint32_t kOffLecturaDevuelta = 10384;  // pointer to the word where the GPU reports the read pointer
@@ -310,3 +312,4 @@ REX_HOOK_RAW(sub_82597690) {
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - antes).count());
   AnotarEsperaCompleta(lr, ns);
 }
+#endif  // !NFSC_RECOMP

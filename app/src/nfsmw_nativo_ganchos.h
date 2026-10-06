@@ -23,6 +23,9 @@ enum class FuncionDibujo : uint8_t {
   kIndexados,     // DrawIndexedVertices(dispositivo, tipo, base, inicio, cuenta)
   kVerticesUP,    // DrawVerticesUP(dispositivo, tipo, cuenta, datos, zancada)
   kIndexadosUP,   // DrawIndexedVerticesUP: argument order unconfirmed
+  // A draw function whose arguments are not mapped (NFS Carbon's other six, reached through function
+  // pointers): the record matches any type and count, and only its shaders are checked against the ring.
+  kCualquiera,
 };
 
 struct RegistroDibujo {
@@ -210,5 +213,12 @@ bool SacarDibujo(RegistroDibujo& registro);
 const EntradaShader* ShaderDeObjeto(uint32_t objeto);  // nullptr si no se conoce
 uint64_t GeneracionObjetos();  // changes with every shader created
 EstadisticasGanchos EstadisticasDeGanchos();
+
+// From the shader constructor hooks: before the original, the library entry of the container at `direccion`
+// (2005 or 2008, nullptr if unknown); after it, the object the original returned.
+namespace ganchos_detalle {
+const EntradaShader* IdentificarCreacion(const uint8_t* base, uint32_t direccion, bool vertices);
+void RecordarCreacion(uint32_t objeto, const EntradaShader* entrada, bool vertices);
+}  // namespace ganchos_detalle
 
 }  // namespace nfsmw::nativo

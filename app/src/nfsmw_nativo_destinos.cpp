@@ -1430,8 +1430,7 @@ class DestinosVulkan final : public DestinosNativos, public ContextoDestinos {
     }
     const uint32_t info_color = reg.rb_color_info[origen];
     const uint32_t formato_color = (info_color >> 16) & 0xF;
-    if (formato_color != uint32_t(xenos::ColorRenderTargetFormat::k_8_8_8_8) &&
-        formato_color != uint32_t(xenos::ColorRenderTargetFormat::k_8_8_8_8_GAMMA)) {
+    if (FormatoHostDestinoColor(formato_color) == VK_FORMAT_UNDEFINED) {
       return Rechazar(100 + formato_color, "formato de destino de render todavia no soportado");
     }
     int32_t x0, y0, x1, y1;
@@ -1455,6 +1454,18 @@ class DestinosVulkan final : public DestinosNativos, public ContextoDestinos {
     if (copiar) {
       const uint32_t info_destino = reg.rb_copy_dest_info;
       const uint32_t formato_destino = (info_destino >> 7) & 0x3F;
+      {
+        // Exponent biases (RB_COLOR_INFO 20-25: the shader's output; RB_COPY_DEST_INFO 16-21: the copy). Not
+        // applied yet; Most Wanted leaves them at 0. Logged once per combination.
+        const int32_t sesgo_color = int32_t(info_color << 6) >> 26;
+        const int32_t sesgo_copia = int32_t(info_destino << 10) >> 26;
+        const uint32_t combinacion = 0x40000000u | (formato_color << 24) | (formato_destino << 16) |
+                                     (uint32_t(sesgo_color & 0xFF) << 8) | uint32_t(sesgo_copia & 0xFF);
+        if ((sesgo_color || sesgo_copia) && avisados_.size() < 256 && avisados_.insert(combinacion).second) {
+          REXLOG_INFO("[nativo] C2 sesgo de exponente: destino formato {} sesgo {}, copia a formato {} sesgo {}",
+                      formato_color, sesgo_color, formato_destino, sesgo_copia);
+        }
+      }
       if ((info_destino >> 3) & 0x1) {
         Rechazar(3, "copia a textura 3D o array: todavia no");
       } else if (formato_destino != uint32_t(xenos::ColorFormat::k_8_8_8_8) &&
@@ -1581,7 +1592,27 @@ class DestinosVulkan final : public DestinosNativos, public ContextoDestinos {
         // reads, it is deferred.
         ResolverFrontalAnterior(base_resuelta,
                                 dx == 0 && dy == 0 && ancho == resuelta->imagen.ancho && alto == resuelta->imagen.alto);
-        if (!AplazarCopiaFrontal(base_resuelta, *destino_render, *resuelta, copia) &&
+        if (destino_render->formato != resuelta->imagen.formato) {
+          // A render target in another host format than its texture (NFS Carbon's half float scene resolved to
+          // 8_8_8_8): vkCmdCopyImage needs compatible formats, a 1:1 blit converts.
+          if (blit_ != nullptr) {
+            VkImageBlit conversion{};
+            conversion.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            conversion.srcOffsets[0] = {x0, y0, 0};
+            conversion.srcOffsets[1] = {x0 + int32_t(ancho), y0 + int32_t(alto), 1};
+            conversion.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            conversion.dstOffsets[0] = {int32_t(dx), int32_t(dy), 0};
+            conversion.dstOffsets[1] = {int32_t(dx + ancho), int32_t(dy + alto), 1};
+            blit_(comandos_trabajo_, destino_render->imagen, VK_IMAGE_LAYOUT_GENERAL, resuelta->imagen.imagen,
+                  VK_IMAGE_LAYOUT_GENERAL, 1, &conversion, VK_FILTER_NEAREST);
+            ++copias_;
+            AnotarCopia(ancho, alto);
+            ResueltaEscrita(base_resuelta, uint64_t(ancho) * alto);
+            LeerResuelta(reg, *resuelta, x0, y0, dx, dy, ancho, alto);
+          } else {
+            Rechazar(9, "copia entre formatos distintos sin vkCmdBlitImage");
+          }
+        } else if (!AplazarCopiaFrontal(base_resuelta, *destino_render, *resuelta, copia) &&
             !AplazarCompuesta(base_resuelta, *destino_render, *resuelta, copia,
                               (info_color & 0xFFF) | (pitch << 12))) {
           copiar_imagen_(comandos_trabajo_, destino_render->imagen, VK_IMAGE_LAYOUT_GENERAL,
@@ -1625,8 +1656,22 @@ class DestinosVulkan final : public DestinosNativos, public ContextoDestinos {
         if (REXCVAR_GET(nfsmw_nativo_diag_borrado)) {
           color = ColorDiagnostico(info_color & 0xFFF, formato_color, pitch);
         } else {
-          for (uint32_t j = 0; j < 4; ++j) {
-            color.float32[j] = float((valor_crudo >> (j * 8)) & 0xFF) * (1.0f / 255.0f);
+          if (formato_color == 3 || formato_color == 12) {
+            // k_2_10_10_10_FLOAT: three 7e3 channels (3-bit exponent with bias 3, 7-bit mantissa) and a 2-bit
+            // alpha.
+            const auto siete_e3 = [](uint32_t v) {
+              const uint32_t e = (v >> 7) & 0x7, m = v & 0x7F;
+              return e ? std::ldexp(1.0f + float(m) / 128.0f, int(e) - 3) : std::ldexp(float(m) / 128.0f, -2);
+            };
+            const uint32_t w = uint32_t(valor_crudo);
+            color.float32[0] = siete_e3(w & 0x3FF);
+            color.float32[1] = siete_e3((w >> 10) & 0x3FF);
+            color.float32[2] = siete_e3((w >> 20) & 0x3FF);
+            color.float32[3] = float(w >> 30) * (1.0f / 3.0f);
+          } else {
+            for (uint32_t j = 0; j < 4; ++j) {
+              color.float32[j] = float((valor_crudo >> (j * 8)) & 0xFF) * (1.0f / 255.0f);
+            }
           }
         }
         // nfsmw_nativo_borrar_area_util. Only the rows in use; the bottom band, if needed.
@@ -3892,6 +3937,14 @@ class DestinosVulkan final : public DestinosNativos, public ContextoDestinos {
       Rechazar(7, "destino de render con pitch 0");
       return nullptr;
     }
+    // The "AS" variants are the same EDRAM contents seen with another precision: NFS Carbon draws its scene in
+    // 2_10_10_10_FLOAT and, in the same render target, in 2_10_10_10_FLOAT_AS_16_16_16_16. Both views are one
+    // image (they already share the host format).
+    if (formato == 12) {
+      formato = 3;
+    } else if (formato == 10) {
+      formato = 2;
+    }
     const uint64_t clave = (uint64_t(base) << 20) | (uint64_t(formato) << 16) | pitch;
     auto it = destinos_.find(clave);
     if (it != destinos_.end()) {
@@ -3910,9 +3963,15 @@ class DestinosVulkan final : public DestinosNativos, public ContextoDestinos {
      */
     const uint32_t alto = std::min(kAltoMaximoDestino, std::max<uint32_t>(720, (pitch + 15) & ~15u));
     Imagen imagen;
+    const VkFormat formato_host = FormatoHostDestinoColor(formato);
+    if (formato_host == VK_FORMAT_UNDEFINED) {
+      Rechazar(100 + formato, "formato de destino de render todavia no soportado");
+      return nullptr;
+    }
     if (!Crear(imagen, pitch, alto,
                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                   VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)) {
+                   VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+               formato_host)) {
       Rechazar(8, "no se pudo crear un destino de render");
       return nullptr;
     }
@@ -4677,7 +4736,7 @@ class DestinosVulkan final : public DestinosNativos, public ContextoDestinos {
     info_vista.image = imagen.imagen;
     info_vista.viewType = VK_IMAGE_VIEW_TYPE_2D;
     info_vista.format = formato;
-    info_vista.subresourceRange = formato == kFormatoColor ? kRangoColor : kRangoProfundidad;
+    info_vista.subresourceRange = EsProfundidadFormato(formato) ? kRangoProfundidad : kRangoColor;
     if (dfn_.vkCreateImageView(device_, &info_vista, nullptr, &imagen.vista) != VK_SUCCESS) {
       Destruir(imagen);
       return false;

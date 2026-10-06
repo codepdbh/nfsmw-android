@@ -26,6 +26,32 @@ namespace nfsmw::nativo {
 
 struct EntradaShader;
 
+// Host format of a Xenos color render target format (xenos::ColorRenderTargetFormat); VK_FORMAT_UNDEFINED if
+// not supported. Most Wanted only uses 8_8_8_8 (and its gamma variant); NFS Carbon draws its scene in
+// 2_10_10_10_FLOAT (7e3, also as 16_16_16_16), kept in half floats as Xenia does.
+inline VkFormat FormatoHostDestinoColor(uint32_t formato) {
+  switch (formato) {
+    case 0:   // k_8_8_8_8
+    case 1:   // k_8_8_8_8_GAMMA
+      return VK_FORMAT_R8G8B8A8_UNORM;
+    case 2:   // k_2_10_10_10
+    case 10:  // k_2_10_10_10_AS_10_10_10_10
+      return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+    case 3:   // k_2_10_10_10_FLOAT
+    case 12:  // k_2_10_10_10_FLOAT_AS_16_16_16_16
+    case 7:   // k_16_16_16_16_FLOAT
+      return VK_FORMAT_R16G16B16A16_SFLOAT;
+    case 6:   // k_16_16_FLOAT
+      return VK_FORMAT_R16G16_SFLOAT;
+    case 14:  // k_32_FLOAT
+      return VK_FORMAT_R32_SFLOAT;
+    case 15:  // k_32_32_FLOAT
+      return VK_FORMAT_R32G32_SFLOAT;
+    default:
+      return VK_FORMAT_UNDEFINED;
+  }
+}
+
 // Image of a render target or a texture, in a host format.
 struct ImagenNativa {
   VkImage imagen = VK_NULL_HANDLE;

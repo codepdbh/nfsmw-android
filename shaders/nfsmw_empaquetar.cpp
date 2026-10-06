@@ -28,8 +28,11 @@ int main(int argc, char** argv) try {
   for (const auto& ruta : rutas) {
     nfsmw::native::Shader s;
     s.original = Leer(ruta);
+    // NFS Carbon's 2008 containers are what XenosRecomp reads directly; BibliotecaShaders::Cargar validates them.
+    const bool formato2008 = s.original.size() >= 4 && s.original[0] == 0x10 && s.original[1] == 0x2A &&
+                             s.original[2] == 0x11;
     nfsmw::Flujo flujo;
-    (void)nfsmw::Convertir2005(s.original, flujo);
+    if (!formato2008) (void)nfsmw::Convertir2005(s.original, flujo);
     auto spv = Leer(compilados / (ruta.stem().string() + ".spv"));
     if (spv.size() % 4) throw std::runtime_error("SPIR-V desalineado");
     for (size_t i = 0; i < spv.size(); i += 4)

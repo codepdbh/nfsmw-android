@@ -1569,15 +1569,16 @@ int32_t DesplazamientoMosaico3D(int32_t x, int32_t y, int32_t z, uint32_t pitch,
 int32_t UbicacionDeUso(uint8_t uso, uint8_t indice) {
   switch (uso) {
     case 0:  // posicion
-      return indice == 0 ? 0 : (indice == 1 ? 15 : -1);
+      // Positions 2-6 only exist in NFS Carbon (NFSC_RECOMP in XenosRecomp).
+      return indice == 0 ? 0 : (indice == 1 ? 15 : (indice <= 6 ? 14 + indice : -1));
     case 3:  // normal
       return indice == 0 ? 1 : -1;
     case 6:  // tangente
       return indice == 0 ? 2 : -1;
     case 7:  // binormal
       return indice == 0 ? 3 : -1;
-    case 5:  // texcoord
-      return indice < 4 ? 4 + indice : (indice < 8 ? 12 + (indice - 4) : -1);
+    case 5:  // texcoord (8: NFS Carbon)
+      return indice < 4 ? 4 + indice : (indice < 8 ? 12 + (indice - 4) : (indice == 8 ? 21 : -1));
     case 10:  // color
       return indice == 0 ? 8 : (indice == 1 ? 11 : -1);
     case 2:  // indices de mezcla
@@ -2299,6 +2300,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     }
     VkPrimitiveTopology topologia;
     bool cuadrilateros = false;
+    bool rectangulos = false;  // the fourth corner is added to the vertices (below, with the bindings)
     bool admite_reinicio = false;
     switch (tipo) {
       case 2:
@@ -2322,6 +2324,13 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       case 13:
         topologia = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         cuadrilateros = true;
+        break;
+      case 8:  // rectangle list: three corners per rectangle (Direct3D's own fills in NFS Carbon)
+        if (fuente == uint32_t(xenos::SourceSelect::kDMA) || cuenta % 3) {
+          return Rechazar(100 + tipo, "lista de rectangulos con indices o cuenta suelta: todavia no");
+        }
+        topologia = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        rectangulos = true;
         break;
       default:
         return Rechazar(100 + tipo, "tipo de primitiva todavia no soportado");
@@ -2362,8 +2371,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       }
       const uint32_t info = r[kInfoColor[i]];
       const uint32_t formato = (info >> 16) & 0xF;
-      if (formato != uint32_t(xenos::ColorRenderTargetFormat::k_8_8_8_8) &&
-          formato != uint32_t(xenos::ColorRenderTargetFormat::k_8_8_8_8_GAMMA)) {
+      if (FormatoHostDestinoColor(formato) == VK_FORMAT_UNDEFINED) {
         return Rechazar(200 + formato, "formato de destino de color todavia no soportado");
       }
       claves[i] = (uint64_t(1) << 63) | (uint64_t(info & 0xFFF) << 24) | (uint64_t(formato) << 16) |
@@ -2652,6 +2660,19 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     } else {
       vmin = desplazamiento;
       vmax = desplazamiento + cuenta - 1;
+      if (rectangulos) {
+        // Corner, a, fourth, b: two triangles of the same winding as the game's three corners.
+        const uint32_t n = cuenta / 3;
+        vmax = desplazamiento + n * 4 - 1;
+        indices_.resize(size_t(n) * 6);
+        for (uint32_t q = 0; q < n; ++q) {
+          uint32_t* o = &indices_[size_t(q) * 6];
+          const uint32_t v = desplazamiento + q * 4;
+          o[0] = v; o[1] = v + 1; o[2] = v + 2;
+          o[3] = v; o[4] = v + 2; o[5] = v + 3;
+        }
+        con_indices = true;
+      }
       if (cuadrilateros) {
         indices_.resize(cuenta);
         for (uint32_t i = 0; i < cuenta; ++i) {
@@ -2700,7 +2721,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       const uint64_t direccion = uint64_t(d0 & 0x1FFFFFFC);
       const uint64_t disponibles = uint64_t((d1 >> 2) & 0xFFFFFF) * 4;
       const uint64_t inicio = uint64_t(vmin) * enlace.zancada;
-      uint64_t necesarios = uint64_t(vertices) * enlace.zancada;
+      uint64_t necesarios = uint64_t(rectangulos ? cuenta : vertices) * enlace.zancada;
       if (inicio + necesarios > disponibles) {
         Avisar(11, "vertices mas alla del final de su bufer: se recorta");
         necesarios = disponibles > inicio ? (disponibles - inicio) / enlace.zancada * enlace.zancada : 0;
@@ -2711,7 +2732,96 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       origenes[b] = {memoria_->TranslatePhysical(uint32_t(direccion + inicio)),
                      static_cast<xenos::Endian>(d1 & 0x3), uint32_t(necesarios),
                      direccion + inicio};
-      bytes_vertices += (necesarios + 3) & ~VkDeviceSize(3);
+      if (!rectangulos) {
+        bytes_vertices += (necesarios + 3) & ~VkDeviceSize(3);
+      }
+    }
+    if (rectangulos) {
+      /*
+       * Rectangle lists: the Xenos completes each rectangle from three corners. As in Xenia, the corner with
+       * the right angle is the one opposite the longest side, and the fourth is a + b - corner for every
+       * float attribute (the others are copied from a). The vertices are rebuilt in a buffer of their own,
+       * still in the guest's byte order, in the order corner, a, fourth, b (the indices above).
+       */
+      const uint32_t n = cuenta / 3;
+      const AtributoVertices* posicion = nullptr;
+      for (const AtributoVertices& a : entrada->atributos) {
+        if (a.ubicacion == 0) {
+          posicion = &a;
+        }
+      }
+      if (!posicion || origenes[posicion->enlace].bytes < uint64_t(cuenta) * entrada->enlaces[posicion->enlace].zancada) {
+        return Rechazar(108, "lista de rectangulos sin posicion legible");
+      }
+      const auto leer = [&](const Origen& o, size_t byte) {
+        uint32_t palabra;
+        std::memcpy(&palabra, o.datos + byte, 4);
+        return Flotante(xenos::GpuSwap(palabra, o.orden));
+      };
+      std::array<uint8_t, 1024> esquinas_pequeno{};
+      std::vector<uint8_t> esquinas_grande;
+      uint8_t* esquinas = n <= esquinas_pequeno.size() ? esquinas_pequeno.data()
+                                                       : (esquinas_grande.resize(n), esquinas_grande.data());
+      {
+        const Origen& o = origenes[posicion->enlace];
+        const uint32_t zancada = entrada->enlaces[posicion->enlace].zancada;
+        for (uint32_t q = 0; q < n; ++q) {
+          float x[3], y[3];
+          for (uint32_t k = 0; k < 3; ++k) {
+            const size_t v = size_t(q * 3 + k) * zancada + posicion->offset;
+            x[k] = leer(o, v);
+            y[k] = leer(o, v + 4);
+          }
+          const auto d = [&](uint32_t i, uint32_t j) { return (x[i] - x[j]) * (x[i] - x[j]) + (y[i] - y[j]) * (y[i] - y[j]); };
+          const float d01 = d(0, 1), d02 = d(0, 2), d12 = d(1, 2);
+          esquinas[q] = d12 >= d01 && d12 >= d02 ? 0 : d02 >= d01 ? 1 : 2;  // opposite the longest side
+        }
+      }
+      for (size_t b = 0; b < entrada->enlaces.size(); ++b) {
+        const uint32_t zancada = entrada->enlaces[b].zancada;
+        if (!zancada || zancada % 4) {
+          return Rechazar(108, "lista de rectangulos con zancada no alineada");
+        }
+        // Which words of this binding's vertex are floats.
+        std::array<bool, 64> flotante{};
+        for (const AtributoVertices& a : entrada->atributos) {
+          if (a.enlace != b) continue;
+          const uint32_t palabras = a.formato == VK_FORMAT_R32_SFLOAT ? 1
+                                    : a.formato == VK_FORMAT_R32G32_SFLOAT ? 2
+                                    : a.formato == VK_FORMAT_R32G32B32_SFLOAT ? 3
+                                    : a.formato == VK_FORMAT_R32G32B32A32_SFLOAT ? 4 : 0;
+          for (uint32_t k = 0; k < palabras && a.offset / 4 + k < flotante.size(); ++k) {
+            flotante[a.offset / 4 + k] = true;
+          }
+        }
+        Origen& o = origenes[b];
+        std::vector<uint8_t>& salida = rectangulos_vertices_[b];
+        salida.resize(size_t(n) * 4 * zancada);
+        for (uint32_t q = 0; q < n; ++q) {
+          const uint32_t c = esquinas[q], a = (c + 1) % 3, bb = (c + 2) % 3;
+          const uint8_t* v0 = o.datos + size_t(q * 3) * zancada;
+          uint8_t* destino = salida.data() + size_t(q) * 4 * zancada;
+          std::memcpy(destino, v0 + c * zancada, zancada);
+          std::memcpy(destino + zancada, v0 + a * zancada, zancada);
+          std::memcpy(destino + 3 * zancada, v0 + bb * zancada, zancada);
+          uint8_t* cuarta = destino + 2 * zancada;
+          std::memcpy(cuarta, v0 + a * zancada, zancada);
+          for (uint32_t w = 0; w < zancada / 4 && w < flotante.size(); ++w) {
+            if (!flotante[w]) continue;
+            const float valor = leer(o, size_t(q * 3 + a) * zancada + w * 4) +
+                                leer(o, size_t(q * 3 + bb) * zancada + w * 4) -
+                                leer(o, size_t(q * 3 + c) * zancada + w * 4);
+            uint32_t bits;
+            std::memcpy(&bits, &valor, 4);
+            bits = xenos::GpuSwap(bits, o.orden);  // back to the guest's order (the swap is its own inverse)
+            std::memcpy(cuarta + w * 4, &bits, 4);
+          }
+        }
+        o.datos = salida.data();
+        o.bytes = uint32_t(salida.size());
+        o.direccion = 0;  // not guest memory: copied at once and never deduplicated
+        bytes_vertices += (o.bytes + 3) & ~VkDeviceSize(3);
+      }
     }
 
     // Diagnostic: one line per combination of VS, PS and render target (at most 32).
@@ -3035,7 +3145,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       VkDeviceSize offset;
       // If this same range was already copied in this frame, its place in the upload buffer is reused and
       // nothing is copied. See nfsmw_nativo_vertices_dedupe.h.
-      if (dedupe_activo_ &&
+      if (dedupe_activo_ && origen.direccion != 0 &&
           dedupe_.Buscar(origen.direccion, origen.bytes, uint32_t(origen.orden), offset)) {
         offsets_vertices[b] = offset;
         continue;
@@ -3047,12 +3157,13 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         Reservar(origen.bytes, 4, offset);
       }
       const TrabajoCopia trabajo{origen.datos, subida_datos_ + offset, origen.bytes / 4, origen.orden};
-      if (!copias_activas_ || !EncolarCopia(trabajo)) {
+      // A rectangle list's buffer is rewritten by the next one: it is copied now, not by the copy thread.
+      if (origen.direccion == 0 || !copias_activas_ || !EncolarCopia(trabajo)) {
         CopiarVertices(trabajo);
       }
       bytes_vertices_ += origen.bytes;
       offsets_vertices[b] = offset;
-      if (dedupe_activo_) {
+      if (dedupe_activo_ && origen.direccion != 0) {
         dedupe_.Anotar(origen.direccion, origen.bytes, uint32_t(origen.orden), offset);
       }
     }
@@ -8439,8 +8550,15 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         Rechazar(24, "offset de vertice negativo");
         return nullptr;
       }
+      if (size_t(ubicacion) >= entrada_.remapeos.size() && codigo != kRemapeoIdentidad) {
+        // The shaders only read g_InputRemap for the first 16 locations (NFS Carbon's extras are not remapped).
+        Rechazar(26, "remapeo de swizzle en una ubicacion sin g_InputRemap");
+        return nullptr;
+      }
       entrada_.atributos.push_back({uint32_t(ubicacion), enlace, vk, uint32_t(offset)});
-      entrada_.remapeos[ubicacion] = codigo;
+      if (size_t(ubicacion) < entrada_.remapeos.size()) {
+        entrada_.remapeos[ubicacion] = codigo;
+      }
       ubicaciones_usadas |= uint32_t(1) << ubicacion;
     }
     for (const EnlaceVertices& enlace : entrada_.enlaces) {
@@ -12535,6 +12653,8 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   std::vector<uint32_t, SinInicializar<uint32_t>> indices_;
   std::vector<uint32_t, SinInicializar<uint32_t>> convertidos_;
   std::vector<uint16_t, SinInicializar<uint16_t>> indices16_;  // camino rapido: 16 bits sin convertir
+  // Rectangle lists (NFS Carbon): each binding's vertices with the fourth corner of every rectangle added.
+  std::array<std::vector<uint8_t>, 16> rectangulos_vertices_;
   // IndicesDe16 (nfsmw_nativo_indices_neon). Ring only.
   int32_t indices_neon_ = -1;  // -1 cvar not read, 0 plain loop, 1 NEON
   uint64_t indices_neon_dibujos_ = 0;
