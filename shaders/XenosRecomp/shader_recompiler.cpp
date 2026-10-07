@@ -119,6 +119,14 @@ static constexpr DeclUsageLocation USAGE_LOCATIONS[] =
 #endif
 };
 
+// Float constants of a pixel shader: 224 in Most Wanted's shader_common.h, all 256 for NFS Carbon (its character
+// skin shader reads c232-c239).
+#ifdef NFSC_RECOMP
+static constexpr uint32_t kPixelConstants = 256;
+#else
+static constexpr uint32_t kPixelConstants = 224;
+#endif
+
 static constexpr std::pair<DeclUsage, size_t> INTERPOLATORS[] =
 {
     { DeclUsage::TexCoord, 0 },
@@ -1235,7 +1243,7 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
 
             if (constantInfo->registerCount > 1)
             {
-                uint32_t tailCount = (isPixelShader ? 224 : 256) - constantInfo->registerIndex;
+                uint32_t tailCount = (isPixelShader ? kPixelConstants : 256) - constantInfo->registerIndex;
 
                 // NFSMW: dynamic UBO or pointer, depending on SPEC_CONSTANT_CONSTANTES_UBO.
                 println("#define {}(INDEX) select((INDEX) < {}, (NFSMW_UBO ? g_Ubo{}.v[{} + min(INDEX, {})] : vk::RawBufferLoad<float4>(g_PushConstants.{}ShaderConstants + ({} + min(INDEX, {})) * 16, 0x10)), 0.0)",
@@ -1311,7 +1319,7 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
 
             if (constantInfo->registerCount > 1)
             {
-                uint32_t tailCount = (isPixelShader ? 224 : 256) - constantInfo->registerIndex;
+                uint32_t tailCount = (isPixelShader ? kPixelConstants : 256) - constantInfo->registerIndex;
                 println("#define {0}(INDEX) select((INDEX) < {1}, {0}[min(INDEX, {2})], 0.0)", constantName, tailCount, tailCount - 1);
             }
         }

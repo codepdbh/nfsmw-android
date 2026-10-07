@@ -150,7 +150,12 @@ const char* Leer(const nfsmw::native::Shader& shader, EntradaShader& e) {
     if (c.U16(p + 4) == 2) {  // RegisterSet::Float4
       const uint32_t indice = c.U16(p + 6);
       const uint32_t cuantos = c.U16(p + 8);
-      registros_float = std::max(registros_float, cuantos > 1 ? (e.vertices ? 256u : 224u)
+#if defined(NFSC_RECOMP)
+      constexpr uint32_t kRegistrosPs = 256;  // NFS Carbon: its XenosRecomp declares all 256 (NFSC_RECOMP)
+#else
+      constexpr uint32_t kRegistrosPs = 224;
+#endif
+      registros_float = std::max(registros_float, cuantos > 1 ? (e.vertices ? 256u : kRegistrosPs)
                                                               : indice + 1);
     }
   }

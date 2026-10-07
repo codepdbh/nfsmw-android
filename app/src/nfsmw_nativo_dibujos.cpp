@@ -1277,7 +1277,12 @@ constexpr uint32_t kIndicesDomoCielo = 480;
 constexpr uint32_t kCieloFotogramasPrueba = 90;
 constexpr uint32_t kCieloFotogramasConUno = 90;
 constexpr VkDeviceSize kUboBytesVs = 256 * 16;
+#if defined(NFSC_RECOMP)
+// NFS Carbon's pixel shaders use all 256 pixel constants (the character skin reads c232-c239).
+constexpr VkDeviceSize kUboBytesPs = 256 * 16;
+#else
 constexpr VkDeviceSize kUboBytesPs = 224 * 16;
+#endif
 #if defined(NFSC_RECOMP)
 constexpr VkDeviceSize kUboBytesCompartidas = 32 * 16;  // 128 words
 #else
