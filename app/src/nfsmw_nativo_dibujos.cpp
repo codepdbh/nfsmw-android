@@ -1156,7 +1156,14 @@ constexpr size_t kMaxRegistrosLista = 4096;
 // (68) and function (69), NDC (64-73) and g_InputRemap for the 16 locations (74-89).
 // 90 words up to g_InputRemap (bytes 296..359) and 32 more for 1/size of the 16 texture slots (bytes
 // 360..487), which avoid querying the texture size on every sample.
+#if defined(NFSC_RECOMP)
+// NFS Carbon: 6 more words (bytes 488..511) for g_InputRemap of locations 16-21 (its extra positions and TEXCOORD8;
+// its shader_common.h reads them there).
+constexpr uint32_t kPalabrasCompartidas = 128;
+constexpr uint32_t kPalabraRemapeosAltos = 122;
+#else
 constexpr uint32_t kPalabrasCompartidas = 122;
+#endif
 constexpr uint32_t kPalabraInvTamano = 90;
 // Constants through a dynamic UBO (nfsmw_nativo_constantes_ubo). The bit is SPEC_CONSTANT_CONSTANTES_UBO
 // from shader_common.h, and the sizes are the blocks the shaders declare: 256 and 224 float4, and 23 shared
@@ -1271,7 +1278,11 @@ constexpr uint32_t kCieloFotogramasPrueba = 90;
 constexpr uint32_t kCieloFotogramasConUno = 90;
 constexpr VkDeviceSize kUboBytesVs = 256 * 16;
 constexpr VkDeviceSize kUboBytesPs = 224 * 16;
+#if defined(NFSC_RECOMP)
+constexpr VkDeviceSize kUboBytesCompartidas = 32 * 16;  // 128 words
+#else
 constexpr VkDeviceSize kUboBytesCompartidas = 31 * 16;
+#endif
 constexpr uint32_t kRemapeoIdentidad = 0xFFF;
 constexpr uint32_t kMaxVerticesPorDibujo = uint32_t(1) << 20;
 constexpr uint32_t kMemoriaFisica = 0x20000000;
@@ -1595,7 +1606,15 @@ bool EntradaEntera(uint8_t uso) {
   // Only BLENDINDICES. Since the nfsmw_validado_normales library, normals, tangents and binormals are
   // float4: NFSMW stores them as 16-bit integers (format 26) or as floats, and with uint4 the shader's
   // asfloat gave degenerate directions (seen in the rear-view mirror).
+#if defined(NFSC_RECOMP)
+  // NFS Carbon's skinned meshes (the characters) keep their bone indices as 32-bit floats: with an integer format the
+  // shader read the float's bits as the index and the mesh collapsed. Its library declares them float4 (XenosRecomp
+  // with NFSC_RECOMP); byte indices then come in as USCALED, the same numbers.
+  (void)uso;
+  return false;
+#else
   return uso == 2;
+#endif
 }
 
 uint32_t ComponentesVertice(uint32_t formato) {
@@ -1846,7 +1865,11 @@ struct EnlaceVertices {
 struct EntradaVertices {
   std::vector<AtributoVertices> atributos;
   std::vector<EnlaceVertices> enlaces;
+#if defined(NFSC_RECOMP)
+  std::array<uint32_t, 22> remapeos{};  // g_InputRemap by location (16-21: NFS Carbon)
+#else
   std::array<uint32_t, 16> remapeos{};  // g_InputRemap by location
+#endif
   uint32_t especializacion = 0;
   uint64_t huella = 0;
 };
@@ -3294,7 +3317,12 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     std::memcpy(&compartidas[68], &umbral_alfa, sizeof(umbral_alfa));
     compartidas[69] = funcion_alfa;  // g_AlphaFunction
     std::memcpy(&compartidas[70], ndc, sizeof(ndc));
+#if defined(NFSC_RECOMP)
+    std::copy(entrada->remapeos.begin(), entrada->remapeos.begin() + 16, compartidas + 74);
+    std::copy(entrada->remapeos.begin() + 16, entrada->remapeos.end(), compartidas + kPalabraRemapeosAltos);
+#else
     std::copy(entrada->remapeos.begin(), entrada->remapeos.end(), compartidas + 74);
+#endif
     VkDeviceSize offset_compartidas;
     /*
      * How many draws really change the shared constants.
@@ -8551,7 +8579,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         return nullptr;
       }
       if (size_t(ubicacion) >= entrada_.remapeos.size() && codigo != kRemapeoIdentidad) {
-        // The shaders only read g_InputRemap for the first 16 locations (NFS Carbon's extras are not remapped).
+        // Most Wanted's shaders only read g_InputRemap for 16 locations (Carbon's has 22: never taken there).
         Rechazar(26, "remapeo de swizzle en una ubicacion sin g_InputRemap");
         return nullptr;
       }

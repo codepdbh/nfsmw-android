@@ -18,7 +18,11 @@ static constexpr const char* USAGE_TYPES[] =
 {
     "float4", // POSITION
     "float4", // BLENDWEIGHT
+#ifdef NFSC_RECOMP
+    "float4", // BLENDINDICES: NFS Carbon stores them as 32-bit floats as well as bytes (USCALED in the renderer)
+#else
     "uint4", // BLENDINDICES
+#endif
 #ifdef NFSMW_RECOMP
     "float4", // NORMAL: NFSMW stores them as 16-bit integers or as float
 #else
@@ -220,9 +224,11 @@ void ShaderRecompiler::recompile(const VertexFetchInstruction& instr, uint32_t a
             break;
         }
     }
-    // g_InputRemap holds 16 locations; the NFS Carbon extras (16+) are fetched unchanged.
+#ifndef NFSC_RECOMP
+    // g_InputRemap holds 16 locations here; NFS Carbon's shader_common.h has 22 (its extra positions and TEXCOORD8).
     if (remapLocation >= 16)
         remapLocation = -1;
+#endif
     if (remapLocation >= 0)
         out += "remapInput(float4(";
 #endif
