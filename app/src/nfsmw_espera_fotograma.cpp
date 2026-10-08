@@ -33,6 +33,7 @@
 //   1 ms of delay on every delivery.
 
 #include "nfsmw_esperas_tiron.h"
+#include "nfsmw_ordenes_publicadas.h"
 
 #include <rex/cvar.h>
 #include <rex/hook.h>
@@ -412,8 +413,35 @@ REX_HOOK_RAW(sub_823C83F8) {
       nfsmw::esperas::Sumar(nfsmw::esperas::kEjecutorSinOrdenes, ns_sin_ordenes);
     }
   }
+#if REX_PLATFORM_ANDROID && !defined(NFSC_RECOMP)
+  // Acquire the producer's count before the guest executor reads command bytes.
+  constexpr uint32_t lista = 0x82909650;
+  const uint32_t publicadas = nfsmw::ordenes::Publicadas(base + lista);
+  const uint32_t hechas = Leer32(base, lista + 4);
+  ctx.r4.u64 = std::min(ctx.r4.u32, publicadas - hechas);
+#endif
   __imp__sub_823C83F8(ctx, base);
 }
+
+#if REX_PLATFORM_ANDROID && !defined(NFSC_RECOMP)
+REX_EXTERN(__imp__sub_823C8378);
+REX_HOOK_RAW(sub_823C8378) {
+  constexpr uint32_t lista = 0x82909650;
+  if (Leer32(base, lista + 12) == 0) {
+    __imp__sub_823C8378(ctx, base);  // Closed list: original immediate dispatch.
+    return;
+  }
+  const uint32_t bytes = (ctx.r6.u32 + 15) & ~15u;
+  const uint32_t entrada = Leer32(base, lista + 20);
+  std::memmove(base + entrada, base + ctx.r4.u32, bytes);
+  nfsmw::ordenes::Escribir(base + entrada, ctx.r5.u32);
+  nfsmw::ordenes::Escribir(base + entrada + 4, bytes);
+  nfsmw::ordenes::Escribir(base + lista + 20, entrada + bytes);
+  // Release publishes the entry and tail together, instead of relying on ARM store ordering.
+  nfsmw::ordenes::Publicar(base + lista, nfsmw::ordenes::Publicadas(base + lista) + 1);
+  ctx.r3.u64 = entrada;
+}
+#endif
 
 // Right after the flag is set to 1 (sub_82442058).
 // Also how long the preparer takes to fill the list (the whole call) and the time spent outside it between two

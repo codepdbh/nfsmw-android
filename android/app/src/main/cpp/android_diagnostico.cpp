@@ -1,5 +1,8 @@
 #include <jni.h>
 #include <vulkan/vulkan.h>
+#include <rex/ui/vulkan/android_gpu_driver.h>
+#include <dlfcn.h>
+#include <cstring>
 
 #include <sstream>
 #include <string>
@@ -15,7 +18,19 @@ std::string Json(const std::string& value) {
   return result + '"';
 }
 
-std::string Probe() {
+std::string Probe(const char* hooks, const char* temp, const char* directory, const char* library) {
+  struct Loader {
+    void* handle;
+    ~Loader() { if (handle) dlclose(handle); }
+  } loader{rex_android_open_vulkan(hooks, temp, directory, library)};
+  if (!loader.handle)
+    return "{\"driverLoadFailed\":true,\"probeError\":\"No se pudo abrir el driver seleccionado\"}";
+  auto vkGetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(loader.handle, "vkGetInstanceProcAddr"));
+  if (!vkGetInstanceProcAddr)
+    return "{\"driverLoadFailed\":true,\"probeError\":\"El paquete no ofrece vkGetInstanceProcAddr\"}";
+  auto vkCreateInstance = reinterpret_cast<PFN_vkCreateInstance>(vkGetInstanceProcAddr(nullptr, "vkCreateInstance"));
+  if (!vkCreateInstance)
+    return "{\"driverLoadFailed\":true,\"probeError\":\"El paquete no ofrece vkCreateInstance\"}";
   uint32_t loader_version = VK_API_VERSION_1_0;
   auto version = reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
       vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
@@ -29,14 +44,27 @@ std::string Probe() {
   VkInstance instance{};
   VkResult result = vkCreateInstance(&ci, nullptr, &instance);
   if (result != VK_SUCCESS) {
-    return "{\"compatible\":false,\"missing\":[\"No se pudo iniciar Vulkan (" +
+    return "{\"driverLoadFailed\":true,\"compatible\":false,\"missing\":[\"No se pudo iniciar Vulkan (" +
         std::to_string(result) + ")\"]}";
   }
+  // Resolve every entry point through the chosen loader, never through the system libvulkan link.
+#define LOAD_INSTANCE(name) \
+  auto name = reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name)); \
+  if (!name) return "{\"driverLoadFailed\":true,\"probeError\":\"Driver con funciones Vulkan incompletas\"}"
+  LOAD_INSTANCE(vkDestroyInstance);
+  LOAD_INSTANCE(vkEnumeratePhysicalDevices);
+  LOAD_INSTANCE(vkGetPhysicalDeviceProperties);
+  LOAD_INSTANCE(vkGetPhysicalDeviceFeatures);
+  LOAD_INSTANCE(vkGetPhysicalDeviceFormatProperties);
+  LOAD_INSTANCE(vkEnumerateDeviceExtensionProperties);
+  LOAD_INSTANCE(vkGetPhysicalDeviceQueueFamilyProperties);
+  LOAD_INSTANCE(vkCreateDevice);
+#undef LOAD_INSTANCE
   uint32_t count = 0;
   result = vkEnumeratePhysicalDevices(instance, &count, nullptr);
   if (result != VK_SUCCESS || !count) {
     vkDestroyInstance(instance, nullptr);
-    return "{\"compatible\":false,\"missing\":[\"No se encontro una GPU Vulkan\"]}";
+    return "{\"driverLoadFailed\":true,\"compatible\":false,\"missing\":[\"No se encontro una GPU Vulkan\"]}";
   }
   std::vector<VkPhysicalDevice> devices(count);
   result = vkEnumeratePhysicalDevices(instance, &count, devices.data());
@@ -88,12 +116,24 @@ std::string Probe() {
   require(props.apiVersion >= VK_API_VERSION_1_1, "Vulkan 1.1 o posterior");
   require(props.apiVersion >= VK_API_VERSION_1_2 || indexing_extension,
           "VK_EXT_descriptor_indexing (Vulkan 1.1) o Vulkan 1.2");
+  require(props.limits.maxBoundDescriptorSets >= 4, "Cuatro conjuntos de descriptores Vulkan");
   require(features.independentBlend, "independentBlend");
   require(features.shaderSampledImageArrayDynamicIndexing, "shaderSampledImageArrayDynamicIndexing");
   require(indexing.runtimeDescriptorArray, "runtimeDescriptorArray");
   require(indexing.descriptorBindingPartiallyBound, "descriptorBindingPartiallyBound");
   require(indexing.descriptorBindingSampledImageUpdateAfterBind, "descriptorBindingSampledImageUpdateAfterBind");
   require(indexing.descriptorBindingUpdateUnusedWhilePending, "descriptorBindingUpdateUnusedWhilePending");
+  VkPhysicalDeviceDriverProperties driver{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+  if (props.apiVersion >= VK_API_VERSION_1_2 || has_extension(VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME)) {
+    auto query = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"));
+    if (query) {
+      VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+      properties.pNext = &driver;
+      query(gpu, &properties);
+    }
+  }
+  const bool xclipse = driver.driverID == VK_DRIVER_ID_SAMSUNG_PROPRIETARY ||
+      (driver.driverID == VkDriverId(0) && std::strstr(props.deviceName, "Xclipse"));
   std::ostringstream formats;
   std::ostringstream conversions;
   conversions << '[';
@@ -108,7 +148,7 @@ std::string Probe() {
         VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
     bool supported = (fp.optimalTilingFeatures & required) == required;
     std::string name = "BC" + std::to_string(i + 1);
-    if (!supported) {
+    if (!supported || (xclipse && i >= 3)) {
       // The native renderer now decodes unsupported BC formats on the CPU.
       // Only reject the device if the corresponding uncompressed format is
       // unavailable too. Keep missing BC in the report as a conversion.
@@ -128,12 +168,57 @@ std::string Probe() {
   }
   formats << '}';
   conversions << ']';
+  // Physical capabilities alone do not prove that an imported driver can create a logical device.
+  VkResult device_result = VK_SUCCESS;
+  if (missing.empty()) {
+    uint32_t families_count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(gpu, &families_count, nullptr);
+    std::vector<VkQueueFamilyProperties> families(families_count);
+    vkGetPhysicalDeviceQueueFamilyProperties(gpu, &families_count, families.data());
+    uint32_t family = 0;
+    while (family < families_count && !(families[family].queueFlags & VK_QUEUE_GRAPHICS_BIT)) ++family;
+    if (family == families_count) {
+      device_result = VK_ERROR_INITIALIZATION_FAILED;
+    } else {
+      float priority = 1.0f;
+      VkDeviceQueueCreateInfo queue{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+      queue.queueFamilyIndex = family; queue.queueCount = 1; queue.pQueuePriorities = &priority;
+      VkPhysicalDeviceFeatures enabled{};
+      enabled.independentBlend = VK_TRUE;
+      enabled.shaderSampledImageArrayDynamicIndexing = VK_TRUE;
+      VkPhysicalDeviceDescriptorIndexingFeatures wanted{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES};
+      wanted.runtimeDescriptorArray = VK_TRUE;
+      wanted.descriptorBindingPartiallyBound = VK_TRUE;
+      wanted.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+      wanted.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
+      const char* exts[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME};
+      VkDeviceCreateInfo info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+      info.pNext = &wanted; info.pEnabledFeatures = &enabled;
+      info.queueCreateInfoCount = 1; info.pQueueCreateInfos = &queue;
+      info.enabledExtensionCount = indexing_extension ? 2 : 1; info.ppEnabledExtensionNames = exts;
+      VkDevice device{};
+      device_result = vkCreateDevice(gpu, &info, nullptr, &device);
+      if (device_result == VK_SUCCESS) {
+        auto destroy = reinterpret_cast<PFN_vkDestroyDevice>(vkGetInstanceProcAddr(instance, "vkDestroyDevice"));
+        if (destroy) destroy(device, nullptr);
+      }
+    }
+    if (device_result != VK_SUCCESS) missing.emplace_back("vkCreateDevice: " + std::to_string(device_result));
+  }
   std::ostringstream output;
   output << "{\"gpu\":" << Json(props.deviceName)
          << ",\"vulkan\":" << Json(std::to_string(VK_VERSION_MAJOR(props.apiVersion)) + "." +
               std::to_string(VK_VERSION_MINOR(props.apiVersion)) + "." + std::to_string(VK_VERSION_PATCH(props.apiVersion)))
          << ",\"driverVersion\":" << props.driverVersion
          << ",\"vendorId\":" << props.vendorID
+         << ",\"requestedDriver\":" << Json(library && *library ? library : "system")
+         << ",\"driverName\":" << Json(driver.driverName)
+         << ",\"driverInfo\":" << Json(driver.driverInfo)
+         << ",\"driverId\":" << int(driver.driverID)
+         << ",\"logicalDeviceResult\":" << int(device_result)
+         << ",\"driverLoadFailed\":" << (device_result == VK_SUCCESS ? "false" : "true")
+         << ",\"maxBoundDescriptorSets\":" << props.limits.maxBoundDescriptorSets
+         << ",\"packedDescriptorSets\":" << (props.limits.maxBoundDescriptorSets < 5 ? "true" : "false")
          << ",\"textureFormats\":" << formats.str()
          << ",\"cpuTextureConversions\":" << conversions.str()
          << ",\"shaderInt64\":" << (features.shaderInt64 ? "true" : "false")
@@ -160,7 +245,23 @@ std::string Probe() {
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_nfsmw_android_Diagnostics_nativeGpuReport(JNIEnv* env, jclass) {
-  const std::string report = Probe();
+Java_com_nfsmw_android_Diagnostics_nativeGpuReport(JNIEnv* env, jclass, jstring hooks,
+    jstring temp, jstring directory, jstring library) {
+  const char* h = env->GetStringUTFChars(hooks, nullptr);
+  const char* t = env->GetStringUTFChars(temp, nullptr);
+  const char* d = env->GetStringUTFChars(directory, nullptr);
+  const char* l = env->GetStringUTFChars(library, nullptr);
+  if (!h || !t || !d || !l) {
+    if (h) env->ReleaseStringUTFChars(hooks, h);
+    if (t) env->ReleaseStringUTFChars(temp, t);
+    if (d) env->ReleaseStringUTFChars(directory, d);
+    if (l) env->ReleaseStringUTFChars(library, l);
+    return nullptr;
+  }
+  const std::string report = Probe(h, t, d, l);
+  env->ReleaseStringUTFChars(hooks, h);
+  env->ReleaseStringUTFChars(temp, t);
+  env->ReleaseStringUTFChars(directory, d);
+  env->ReleaseStringUTFChars(library, l);
   return env->NewStringUTF(report.c_str());
 }

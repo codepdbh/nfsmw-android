@@ -1,5 +1,13 @@
 # Diagnosticos de testers (desde la compilacion 0.3.5)
 
+## Compatibilidad y drivers en 0.5.4
+
+Consulta [la revisión de compatibilidad 0.5.4](compatibilidad-android-0.5.4.md). Prueba primero el driver del sistema, Nativo, protección Mali automática y 1024×576. Si usas un ZIP de driver, selecciona uno para tu GPU y Android y pulsa **Probar driver** antes de jugar. Indica su nombre al enviar el informe. Las pruebas de drivers se ejecutan en un proceso independiente para que un cierre de la prueba no cierre el launcher.
+
+Para Snapdragon 888, 8 Gen 1, Adreno 720, Mali y PowerVR, necesitamos la secuencia completa: logos, menú, carga de carrera y conducción. Comprueba carretera, coche, retrovisor, transparencias, sonido y controles. Adjunta el ZIP nuevo inmediatamente después del fallo; los informes de APK antiguos no reflejan los requisitos actuales. No atribuyas al procesador un cierre por edición de `default.xex` distinta de PAL España.
+
+El aviso de nueva release es opcional. **Actualizar** abre GitHub; **Más tarde** permite seguir usando esta versión y no repite el aviso de esa misma release. **Buscar actualizaciones** vuelve a consultar aunque ya la hayas descartado. La comprobación automática usa una caché de seis horas y no envía diagnósticos ni archivos del juego.
+
 El launcher incorpora **Enviar crash o log**. El telefono prepara un ZIP local
 con la version de la app, modelo, Android, GPU/Vulkan, ajustes del launcher,
 registros recientes de esta app y el historial de cierres que Android permite

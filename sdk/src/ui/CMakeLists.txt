@@ -181,7 +181,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
         ${WAYLAND_LIBRARIES}
     )
 elseif(ANDROID)
-    target_link_libraries(rexui PRIVATE android)
+    target_link_libraries(rexui PRIVATE android rex_android_gpu_driver)
 elseif(APPLE)
     target_link_libraries(rexui PRIVATE "-framework CoreFoundation")
 endif()

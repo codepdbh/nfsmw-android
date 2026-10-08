@@ -802,3 +802,20 @@ set_target_properties(libavutil libavcodec PROPERTIES
     C_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
     FOLDER "FFmpeg")
+
+# Pinned Android Vulkan loader dependencies (see their BSD-2-Clause licenses).
+if(ANDROID)
+    add_subdirectory(libadrenotools)
+    add_library(rex_android_gpu_driver SHARED ../src/ui/vulkan/android_gpu_driver.cpp)
+    target_include_directories(rex_android_gpu_driver PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../include")
+    target_link_libraries(rex_android_gpu_driver PRIVATE adrenotools android log dl)
+    set_target_properties(rex_android_gpu_driver PROPERTIES CXX_VISIBILITY_PRESET hidden)
+    # linkernsbypass has data symbols named android_get_exported_namespace, etc.,
+    # matching libdl's functions. Exporting them interposes data for executable code
+    # when Android's system loader opens its vendor namespace (SIGSEGV).
+    target_link_options(rex_android_gpu_driver PRIVATE "-Wl,--exclude-libs,ALL")
+    target_link_options(hook_impl PRIVATE "-Wl,--exclude-libs,ALL")
+    foreach(driver_target rex_android_gpu_driver adrenotools main_hook file_redirect_hook gsl_alloc_hook hook_impl)
+        target_link_options(${driver_target} PRIVATE "-Wl,-z,max-page-size=16384")
+    endforeach()
+endif()

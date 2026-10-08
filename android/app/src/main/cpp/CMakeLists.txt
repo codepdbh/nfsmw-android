@@ -4,9 +4,10 @@ project(nfsmw_android LANGUAGES C CXX)
 # Small launcher probe: it must also load on ARMv8.0 phones without loading the game.
 add_library(nfsmw_diagnostics SHARED android_diagnostico.cpp)
 target_include_directories(nfsmw_diagnostics PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../../../../../sdk/thirdparty/vulkan-headers/include")
+    "${CMAKE_CURRENT_LIST_DIR}/../../../../../sdk/thirdparty/vulkan-headers/include"
+    "${CMAKE_CURRENT_LIST_DIR}/../../../../../sdk/include")
 target_compile_options(nfsmw_diagnostics PRIVATE -march=armv8-a)
-target_link_libraries(nfsmw_diagnostics PRIVATE vulkan)
+target_link_libraries(nfsmw_diagnostics PRIVATE rex_android_gpu_driver dl)
 target_link_options(nfsmw_diagnostics PRIVATE "-Wl,-z,max-page-size=16384")
 
 # SDL's Android Activity loads libSDL3.so and then libmain.so. Keep both native
@@ -37,6 +38,9 @@ if(TARGET SDL3-shared)
         MINSIZEREL_POSTFIX ""
     )
 endif()
+
+# Package the namespace hooks adrenotools opens from nativeLibraryDir.
+add_dependencies(nfsmw main_hook file_redirect_hook gsl_alloc_hook hook_impl)
 
 # The game never needs to access the extracted disc through a SAF URI. Java
 # imports it into app-private POSIX storage before GameActivity starts.

@@ -15,7 +15,7 @@ Este proyecto adapta a Android el trabajo de recompilación de [nfsmw-nx](https:
 ## Requisitos
 
 - Android 8 o posterior y procesador ARM64 (ARMv8.0 o posterior).
-- GPU con **Vulkan 1.1 o posterior** y *descriptor indexing*: de serie en Vulkan 1.2, o mediante la extensión `VK_EXT_descriptor_indexing` en controladores 1.1. Desde la v0.3.7 ya no hacen falta `shaderInt64` ni *buffer device address*. El launcher comprueba tu GPU antes de jugar.
+- GPU con **Vulkan 1.1 o posterior** y las funciones necesarias de *descriptor indexing*: expuestas mediante Vulkan 1.2 o la extensión `VK_EXT_descriptor_indexing` en controladores 1.1. Una versión reciente de Vulkan no garantiza esas funciones opcionales. Desde la v0.3.7 ya no hacen falta `shaderInt64` ni *buffer device address*. El launcher comprueba tu GPU antes de jugar.
 - Una copia propia de **Need for Speed: Most Wanted (2005), Xbox 360, edición PAL España**, extraída y con `default.xex`, `NFS/` y `Movies/`. Este APK se compila para el ejecutable de esa edición; con otra edición el juego se cierra al arrancar y el launcher te avisa. Los archivos de la versión de PC, PS2 o una ISO sin extraer no sirven.
 - Espacio en la memoria interna para el APK, la carpeta del juego y los archivos generados.
 
@@ -62,6 +62,16 @@ Instala el nuevo APK encima del anterior, **sin desinstalar ni borrar los datos 
 - **Controles táctiles:** dirección analógica o por inclinación, cruceta, A/B/X/Y, LB/RB, BACK, START, freno y acelerador. Desde el editor (engranaje) puedes moverlos, cambiar su tamaño, ocultarlos y ajustar su opacidad.
 - **Mandos Bluetooth y USB**: funcionan como jugador 1 y ocultan los controles táctiles.
 - **Enviar crash o log**: genera un ZIP con el informe de tu dispositivo para compartirlo por correo o en un issue de GitHub. Adjunta el ZIP al formulario. Consulta [la guía para testers](docs/android-testers.md).
+
+## Novedades de la v0.5.4
+
+- **Drivers Vulkan externos:** importa un ZIP Android ARM64 desde **Driver Vulkan → Importar ZIP**, selecciónalo y usa **Probar driver**. Puedes volver al del sistema o eliminar el paquete. Los drivers externos requieren Android 9+. Turnip es para Adreno; PanVK para Mali, con restricciones de dispositivo, Android y kernel. No se incluyen drivers en el APK.
+- **Mali y otras GPU con cuatro conjuntos:** se combinan las texturas 3D y los cubos cuando la GPU permite solo cuatro conjuntos de descriptores. Se adaptan Vulkan y los shaders; las GPU con más conjuntos conservan su ruta actual.
+- **Estabilidad ARM:** las órdenes se publican completas antes de ejecutarlas desde otro hilo, corrigiendo una causa del cierre al entrar a carrera con una dirección de función inválida.
+- **Xclipse:** conversión conservadora de BC4/BC5 en CPU con el driver propietario de Samsung.
+- **Actualizaciones opcionales:** el launcher consulta las releases oficiales de GitHub en segundo plano y ofrece **Actualizar** o **Más tarde**. **Buscar actualizaciones** fuerza una consulta manual. Puedes jugar sin actualizar ni tener conexión.
+
+Arreglos adaptados y atribuidos al [fork de victorgbd](https://github.com/victorgbd/NFSMW-Recompiled-Mobile/commit/3d9358e13dd6a10fb4b82f64040cddd07b215362), conservando nuestro launcher. Consulta el [diagnóstico y las instrucciones de drivers](docs/compatibilidad-android-0.5.4.md). Se confirmaron la carrera y la prueba del driver del sistema en el S25 Ultra; todavía necesitamos confirmar cada combinación de Snapdragon 888/8 Gen 1, Adreno 720, Mali y Xclipse. La falta de funciones de descriptor indexing sigue siendo una limitación.
 
 ## Novedades de la v0.3.8
 

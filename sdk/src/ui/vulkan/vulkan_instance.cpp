@@ -25,6 +25,18 @@
 #include "vulkan_moltenvk.h"
 #endif
 
+#if REX_PLATFORM_ANDROID
+#include <rex/ui/vulkan/android_gpu_driver.h>
+REXCVAR_DEFINE_STRING(android_gpu_driver_dir, "", "UI/Vulkan", "Android custom driver directory")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_STRING(android_gpu_driver_name, "", "UI/Vulkan", "Android custom driver library; empty = system")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_STRING(android_native_lib_dir, "", "UI/Vulkan", "Android hook library directory")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_STRING(android_tmp_dir, "", "UI/Vulkan", "Android custom loader temporary directory")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+#endif
+
 REXCVAR_DEFINE_BOOL(vulkan_log_debug_messages, true, "UI/Vulkan", "Log Vulkan debug messages");
 
 #if REX_PLATFORM_SWITCH
@@ -93,7 +105,16 @@ std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
   ifn.vkDestroyInstance = &::vkDestroyInstance;
   loader_loaded = true;
 #else
+#if REX_PLATFORM_ANDROID
+  vulkan_instance->loader_.Adopt(rex_android_open_vulkan(
+      REXCVAR_GET(android_native_lib_dir).c_str(), REXCVAR_GET(android_tmp_dir).c_str(),
+      REXCVAR_GET(android_gpu_driver_dir).c_str(), REXCVAR_GET(android_gpu_driver_name).c_str()));
+  loader_loaded = bool(vulkan_instance->loader_);
+  REXLOG_INFO("Vulkan requested driver: {}", REXCVAR_GET(android_gpu_driver_name).empty()
+      ? "system" : REXCVAR_GET(android_gpu_driver_name));
+#else
   loader_loaded = vulkan_instance->loader_.Load(platform::lib_names::kVulkanLoader);
+#endif
   if (!loader_loaded) {
     REXLOG_ERROR("Failed to load {}", platform::lib_names::kVulkanLoader);
     return nullptr;

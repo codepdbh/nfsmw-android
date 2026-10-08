@@ -148,6 +148,7 @@ final class GameOptions {
             args.add("--nfsmw_efecto_pasada_nativo=false");
             args.add("--nfsmw_pegamento_nativo=false");
         }
+        GpuDrivers.arguments(context, args);
         return args;
     }
 }
