@@ -21,6 +21,37 @@ jobs:
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
           yes | sdkmanager --licenses > /dev/null
           sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.2.13676358' 'cmake;3.30.5'
+      # The sdk/thirdparty sources below are required by sdk/thirdparty/CMakeLists.txt and by
+      # android/app/build.gradle (SDLActivity.java). They are not committed to git; upstream pins
+      # them as submodules (rexglue/rexglue-sdk .gitmodules), so shallow-clone the same URLs here.
+      - name: Fetch third-party sources
+        run: |
+          set -e
+          clone() { # $1 = repo URL, $2 = target dir, $3 = branch (optional)
+            if [ -n "$(ls -A "$2" 2>/dev/null)" ]; then echo "present: $2"; return; fi
+            if [ -n "$3" ]; then git clone --depth 1 --branch "$3" "$1" "$2";
+            else git clone --depth 1 "$1" "$2"; fi
+          }
+          T=sdk/thirdparty
+          clone https://github.com/CLIUtils/CLI11 "$T/cli11"
+          clone https://github.com/kyz/libmspack.git "$T/libmspack"
+          clone https://github.com/wmarti/FFmpeg.git "$T/FFmpeg" xenia-ffmpeg-canary-full
+          clone https://github.com/marzer/tomlplusplus.git "$T/tomlplusplus"
+          clone https://github.com/simd-everywhere/simde.git "$T/simde"
+          clone https://github.com/Cyan4973/xxHash.git "$T/xxHash"
+          clone https://github.com/gabime/spdlog.git "$T/spdlog"
+          clone https://github.com/fmtlib/fmt.git "$T/fmt"
+          clone https://github.com/nemtrif/utfcpp.git "$T/utfcpp"
+          clone https://github.com/ocornut/imgui.git "$T/imgui"
+          clone https://github.com/libsdl-org/SDL "$T/sdl3" release-3.4.x
+          clone https://github.com/KhronosGroup/Vulkan-Headers.git "$T/vulkan-headers"
+          clone https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git "$T/vulkan-memory-allocator"
+          clone https://github.com/KhronosGroup/SPIRV-Headers.git "$T/spirv-headers"
+          clone https://github.com/KhronosGroup/SPIRV-Tools.git "$T/spirv-tools"
+          clone https://github.com/KhronosGroup/glslang.git "$T/glslang"
+          clone https://github.com/pavel-kirienko/o1heap.git "$T/o1heap"
+          clone https://github.com/pantor/inja.git "$T/inja"
+          test -f "$T/sdl3/android-project/app/src/main/java/org/libsdl/app/SDLActivity.java"
       - name: Build ARM64 debug APK
         working-directory: android
         run: ./gradlew assembleDebug

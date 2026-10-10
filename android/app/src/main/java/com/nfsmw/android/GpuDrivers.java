@@ -62,7 +62,7 @@ final class GpuDrivers {
             InputStream input = context.getContentResolver().openInputStream(uri);
             if (input == null) throw new IOException(context.getString(R.string.drv_open_zip));
             DriverArchive.extract(input, stage);
-            File packageRoot = findMeta(stage);
+            File packageRoot = findMeta(context, stage);
             if (packageRoot == null) throw new IOException(context.getString(R.string.drv_missing_meta));
             JSONObject meta = new JSONObject(new String(Files.readAllBytes(new File(packageRoot, "meta.json").toPath()), StandardCharsets.UTF_8));
             String library = meta.getString("libraryName");
@@ -87,12 +87,12 @@ final class GpuDrivers {
             if (stage.exists()) DriverArchive.delete(stage);
         }
     }
-    private static File findMeta(File root) throws IOException {
+    private static File findMeta(Context context, File root) throws IOException {
         if (new File(root, "meta.json").isFile()) return root;
         File found = null;
         File[] children = root.listFiles(File::isDirectory);
         if (children != null) for (File child : children) {
-            File candidate = findMeta(child);
+            File candidate = findMeta(context, child);
             if (candidate != null) {
                 if (found != null) throw new IOException(context.getString(R.string.drv_ambiguous));
                 found = candidate;
