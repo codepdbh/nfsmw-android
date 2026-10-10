@@ -10,32 +10,61 @@ import java.util.List;
  * The graphics options of the launcher. Each one is a game cvar: GameActivity passes them on the command
  * line, which wins over nfsmw.toml. Values must be ones the cvar allows (nfsmw_ajustes_graficos.cpp and
  * friends), or the game ignores them.
+ *
+ * <p>Titles and labels are string resources so the launcher follows the device language
+ * (see LauncherLocale); the game text language keeps its own option (nfsmw_idioma).
  */
 final class GameOptions {
     static final class Option {
         final String key;
-        final String title;
+        final int titleRes;
         final String cvar;
         final String[] values;
-        final String[] labels;
+        final int[] labelRes;
         final String defaultValue;
+        final boolean languageNames;
 
-        Option(String key, String title, String cvar, String defaultValue, String[] values, String[] labels) {
+        Option(String key, int titleRes, String cvar, String defaultValue, String[] values, int[] labelRes) {
+            this(key, titleRes, cvar, defaultValue, values, labelRes, false);
+        }
+
+        Option(String key, int titleRes, String cvar, String defaultValue, String[] values, int[] labelRes,
+                boolean languageNames) {
             this.key = key;
-            this.title = title;
+            this.titleRes = titleRes;
             this.cvar = cvar;
             this.defaultValue = defaultValue;
             this.values = values;
-            this.labels = labels;
+            this.labelRes = labelRes;
+            this.languageNames = languageNames;
         }
 
-        String label(String value) {
+        String title(Context context) {
+            return context.getString(titleRes);
+        }
+
+        String label(Context context, String value) {
+            if (languageNames) {
+                String name = languageLabel(value);
+                if (name != null) {
+                    return name;
+                }
+                return context.getString(R.string.lang_edition);
+            }
             for (int i = 0; i < values.length; i++) {
                 if (values[i].equals(value)) {
-                    return labels[i];
+                    return context.getString(labelRes[i]);
                 }
             }
             return value;
+        }
+
+        String[] labels(Context context) {
+            String[] out = new String[values.length];
+            for (int i = 0; i < values.length; i++) {
+                out[i] = label(context, values[i]);
+            }
+            return out;
         }
     }
 
@@ -44,49 +73,51 @@ final class GameOptions {
     static final String RENDERER = "renderer";
 
     static final Option[] ALL = {
-            new Option(RENDERER, "Renderizador", "nfsmw_renderizador", "nativo",
+            new Option(RENDERER, R.string.opt_renderer, "nfsmw_renderizador", "nativo",
                     new String[] {"nativo", "xenos"},
-                    new String[] {"Nativo", "Compatibilidad · experimental"}),
-            new Option("gpu_stability", "Estabilidad gráfica", "nfsmw_consultas_oclusion", "auto",
+                    new int[] {R.string.renderer_native, R.string.renderer_compat}),
+            new Option("gpu_stability", R.string.opt_stability, "nfsmw_consultas_oclusion", "auto",
                     new String[] {"auto", "off", "on"},
-                    new String[] {"Automática · protección Mali", "Máxima compatibilidad · sin destello solar",
-                            "Efectos completos · experimental"}),
-            new Option(RESOLUTION, "Resolución interna", "nfsmw_resolucion_interna", "1280x720",
+                    new int[] {R.string.stability_auto, R.string.stability_max,
+                            R.string.stability_full}),
+            new Option(RESOLUTION, R.string.opt_resolution, "nfsmw_resolucion_interna", "1280x720",
                     new String[] {"640x360", "1024x576", "1280x720", "1920x1080"},
-                    new String[] {"640x360 · máximo rendimiento", "1024x576 · rendimiento", "1280x720 · equilibrado",
-                            "1920x1080 · máxima calidad"}),
-            new Option(FPS, "Límite de FPS", "nfsmw_limite_fps", "60",
+                    new int[] {R.string.res_perf_max, R.string.res_perf, R.string.res_balanced,
+                            R.string.res_quality}),
+            new Option(FPS, R.string.opt_fps, "nfsmw_limite_fps", "60",
                     new String[] {"30", "60", "90", "120"},
-                    new String[] {"30 FPS · ahorra batería", "60 FPS", "90 FPS · experimental",
-                            "120 FPS · experimental"}),
-            new Option("aa", "Antialiasing", "nfsmw_antialiasing", "apagado",
+                    new int[] {R.string.fps_battery, R.string.fps_60, R.string.fps_90,
+                            R.string.fps_120}),
+            new Option("aa", R.string.opt_aa, "nfsmw_antialiasing", "apagado",
                     new String[] {"apagado", "fxaa"},
-                    new String[] {"Desactivado", "FXAA"}),
-            new Option("shadows", "Sombras", "nfsmw_sombras_cada", "1",
+                    new int[] {R.string.aa_off, R.string.aa_fxaa}),
+            new Option("shadows", R.string.opt_shadows, "nfsmw_sombras_cada", "1",
                     new String[] {"1", "2"},
-                    new String[] {"Cada fotograma", "Cada 2 fotogramas · más rendimiento"}),
-            new Option("car_reflections", "Reflejos del coche", "nfsmw_cubemap_caras_max", "6",
+                    new int[] {R.string.shadows_each, R.string.shadows_half}),
+            new Option("car_reflections", R.string.opt_car_refl, "nfsmw_cubemap_caras_max", "6",
                     new String[] {"6", "2", "1"},
-                    new String[] {"Altos", "Medios", "Bajos · más rendimiento"}),
-            new Option("road_reflection", "Reflejo del asfalto mojado", "nfsmw_reflejo_carretera", "true",
+                    new int[] {R.string.refl_high, R.string.refl_medium, R.string.refl_low}),
+            new Option("road_reflection", R.string.opt_road_refl, "nfsmw_reflejo_carretera", "true",
                     new String[] {"true", "false"},
-                    new String[] {"Activado", "Desactivado · más rendimiento"}),
-            new Option("sky", "Resplandor del cielo", "nfsmw_resplandor_cielo", "natural",
+                    new int[] {R.string.switch_on, R.string.switch_off_perf}),
+            new Option("sky", R.string.opt_sky, "nfsmw_resplandor_cielo", "natural",
                     new String[] {"original", "natural", "suave"},
-                    new String[] {"Original (Xbox 360)", "Natural", "Suave"}),
+                    new int[] {R.string.sky_original, R.string.sky_natural, R.string.sky_soft}),
             // The PAL discs carry the text of these ten languages (app/src/nfsmw_idioma.cpp). Speech and movies
-            // stay in the disc's language.
-            new Option("language", "Idioma de los textos", "nfsmw_idioma", "-1",
+            // stay in the disc's language. Default is the edition's language. Names stay in their own
+            // language; they are not launcher translations.
+            new Option("language", R.string.opt_language, "nfsmw_idioma", "-1",
                     new String[] {"-1", "4", "0", "1", "2", "3", "5", "6", "7", "12", "13"},
-                    new String[] {"El de la edición", "Español", "English", "Français", "Deutsch", "Italiano",
-                            "Nederlands", "Svenska", "Dansk", "Polski", "Suomi"}),
-            new Option("volume", "Volumen del juego", "audio_ganancia_pct", "100",
+                    new int[] {R.string.lang_edition}, true),
+            new Option("volume", R.string.opt_volume, "audio_ganancia_pct", "100",
                     new String[] {"100", "125", "150", "200"},
-                    new String[] {"Normal", "Alto", "Muy alto", "Máximo · puede saturar"}),
-            new Option("filter", "Filtro de imagen", "nfsmw_posproceso", "apagado",
+                    new int[] {R.string.vol_normal, R.string.vol_high, R.string.vol_higher,
+                            R.string.vol_max}),
+            new Option("filter", R.string.opt_filter, "nfsmw_posproceso", "apagado",
                     new String[] {"apagado", "cine", "vivo", "calido", "frio", "sepia", "noir", "crt"},
-                    new String[] {"Sin filtro", "Cine", "Vivo", "Cálido", "Frío", "Sepia", "Blanco y negro",
-                            "CRT"}),
+                    new int[] {R.string.filter_off, R.string.filter_cinema, R.string.filter_vivid,
+                            R.string.filter_warm, R.string.filter_cold, R.string.filter_sepia,
+                            R.string.filter_noir, R.string.filter_crt}),
     };
 
     private static final String PREFS = "nfsmw_game";
@@ -116,6 +147,36 @@ final class GameOptions {
             }
         }
         return o.defaultValue;
+    }
+
+    /** Game text language names stay in their own language; they are not launcher translations. */
+    static String languageLabel(String value) {
+        switch (value) {
+            case "-1":
+                return null;  // resolved with Context: R.string.lang_edition
+            case "4":
+                return "Español";
+            case "0":
+                return "English";
+            case "1":
+                return "Français";
+            case "2":
+                return "Deutsch";
+            case "3":
+                return "Italiano";
+            case "5":
+                return "Nederlands";
+            case "6":
+                return "Svenska";
+            case "7":
+                return "Dansk";
+            case "12":
+                return "Polski";
+            case "13":
+                return "Suomi";
+            default:
+                return value;
+        }
     }
 
     static void set(Context context, String key, String value) {

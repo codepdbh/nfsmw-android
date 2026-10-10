@@ -14,9 +14,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      # ubuntu-latest already ships the Android SDK; android-actions/setup-android@v3 is
+      # avoided because it requests the obsolete 'tools' package and fails (sdkmanager exit 1).
       - name: Install Android SDK components
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.2.13676358' 'cmake;3.30.5'
       - name: Build ARM64 debug APK
         working-directory: android
         run: ./gradlew assembleDebug

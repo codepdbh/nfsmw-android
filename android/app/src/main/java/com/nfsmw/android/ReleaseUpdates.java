@@ -33,7 +33,7 @@ final class ReleaseUpdates {
         Thread worker = new Thread(() -> {
             Result result;
             try { result = fetch(app, force); }
-            catch (Exception error) { result = new Result(null, null, "No se pudo consultar GitHub. Comprueba tu conexión e inténtalo después."); }
+            catch (Exception error) { result = new Result(null, null, app.getString(R.string.diag_fetch_failed)); }
             Result value = result;
             main.post(() -> callback.accept(value));
         }, "GitHubReleaseCheck");
@@ -53,12 +53,12 @@ final class ReleaseUpdates {
         connection.setRequestProperty("User-Agent", "NFSMW-Android-Evolved/" + installed(context));
         connection.setRequestProperty("X-GitHub-Api-Version", "2026-03-10");
         try {
-            if (connection.getResponseCode() != 200) throw new IOException("GitHub no disponible");
+            if (connection.getResponseCode() != 200) throw new IOException("GitHub unavailable");
             ByteArrayOutputStream body = new ByteArrayOutputStream();
             try (InputStream input = connection.getInputStream()) {
                 byte[] buffer = new byte[8192]; int n;
                 while ((n = input.read(buffer)) != -1) {
-                    if (body.size() + n > 512 * 1024) throw new IOException("Respuesta demasiado grande");
+                    if (body.size() + n > 512 * 1024) throw new IOException("Response too large");
                     body.write(buffer, 0, n);
                 }
             }
