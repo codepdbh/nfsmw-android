@@ -1,6 +1,7 @@
 package com.nfsmw.android;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
@@ -11,24 +12,27 @@ import android.widget.TextView;
 /** Fresh process for each driver test: loader hooks cannot be safely switched in a running process. */
 public final class GpuProbeActivity extends Activity {
     private boolean finished;
+    @Override protected void attachBaseContext(Context base) {
+        super.attachBaseContext(LauncherLocale.apply(base));
+    }
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         TextView status = new TextView(this);
-        status.setText("Comprobando el driver Vulkan…");
+        status.setText(getString(R.string.probe_checking));
         status.setTextColor(0xFFFFFFFF); status.setTextSize(18);
         status.setGravity(android.view.Gravity.CENTER); status.setBackgroundColor(0xFF0B0F14);
         setContentView(status);
         Handler main = new Handler(Looper.getMainLooper());
         main.postDelayed(() -> {
             if (!finished) {
-                finishReport("{\"probeError\":\"La prueba del driver excedió 20 segundos\",\"driverLoadFailed\":true}");
+                finishReport("{\"probeError\":\"Driver probe timed out after 20 seconds\",\"driverLoadFailed\":true}");
             }
         }, 20000);
         new Thread(() -> {
             String result;
             try { result = Diagnostics.probeSelectedDriver(this); }
             catch (Exception | LinkageError error) {
-                result = "{\"probeError\":\"No se pudo cargar la biblioteca de diagnóstico\",\"driverLoadFailed\":true}";
+                result = "{\"probeError\":\"Could not load the diagnostics library\",\"driverLoadFailed\":true}";
             }
             String report = result;
             main.post(() -> finishReport(report));

@@ -171,6 +171,14 @@ Lo que sigue sin funcionar: Mali-G52/G72/G76 (Bifrost), Adreno 610 y PowerVR GE8
 ni siquiera con controladores 1.3. El renderizador nativo actualiza sus montones de texturas mientras graba
 (`UPDATE_AFTER_BIND`, `PARTIALLY_BOUND`); para esas GPU haría falta otra gestión de descriptores.
 
+## Idioma del launcher
+
+El launcher usa los recursos Android (`android/app/src/main/res/values*/strings.xml`): en modo
+automático el sistema elige el idioma del dispositivo (español, inglés, turco, francés, alemán,
+italiano, chino simplificado o tradicional); la primera fila de opciones permite fijar uno manual
+(`LauncherLocale`, `nfsmw_locale`). El idioma de los textos del juego no cambia: sigue en
+**Idioma de los textos** con valor por omisión el de la edición.
+
 ## Idioma de los textos (v0.3.7, en prueba)
 
 El disco PAL España trae los textos de diez idiomas (`LANGUAGES\*.BIN`, comprobados en el índice `ZDIR.BIN`).

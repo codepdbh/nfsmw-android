@@ -96,6 +96,8 @@ public final class TouchControlsView extends View {
     private final RectF rect = new RectF();
     private final SharedPreferences prefs;
     private Host host;
+    private final String hiddenLabel;
+    private final String tiltLabel;
 
     // Settings.
     float opacity = 0.75f;
@@ -117,6 +119,8 @@ public final class TouchControlsView extends View {
     public TouchControlsView(Context context) {
         super(context);
         prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        hiddenLabel = context.getString(R.string.control_hidden);
+        tiltLabel = context.getString(R.string.control_tilt);
         setClickable(true);
         setHapticFeedbackEnabled(true);
         text.setTypeface(Typeface.DEFAULT_BOLD);
@@ -590,7 +594,7 @@ public final class TouchControlsView extends View {
                 if (!c.visible) {
                     text.setColor(0xFFFFFFFF);
                     text.setTextSize(Math.max(22f, radius(c) * .28f));
-                    canvas.drawText("OCULTO", cx, cy + radius(c) + text.getTextSize() + 6f, text);
+                    canvas.drawText(hiddenLabel, cx, cy + radius(c) + text.getTextSize() + 6f, text);
                 }
             }
         }
@@ -615,7 +619,7 @@ public final class TouchControlsView extends View {
                 fill.setColor(withAlpha(held ? 0xFFFF9A32 : 0xFF3A4654, a * 220 / 255));
                 canvas.drawCircle(kx, ky, knobR, fill);
                 canvas.drawCircle(kx, ky, knobR, stroke);
-                label(canvas, tiltMode ? "INCLINAR" : c.hint, bx, by + r + r * .22f, r * .16f, a);
+                label(canvas, tiltMode ? tiltLabel : c.hint, bx, by + r + r * .22f, r * .16f, a);
                 break;
             }
             case DPAD: {

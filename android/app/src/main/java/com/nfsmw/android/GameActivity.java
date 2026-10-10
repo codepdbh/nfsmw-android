@@ -65,6 +65,11 @@ public final class GameActivity extends SDLActivity
     private static native void nativeSetStretch(boolean stretch);
 
     @Override
+    protected void attachBaseContext(Context context) {
+        super.attachBaseContext(LauncherLocale.apply(context));
+    }
+
+    @Override
     protected void onCreate(Bundle state) {
         File appRoot = new File(getFilesDir(), "nfsmw");
         gameRoot = new File(Environment.getExternalStorageDirectory(), MainActivity.GAME_FOLDER_NAME).getAbsolutePath();
@@ -156,7 +161,7 @@ public final class GameActivity extends SDLActivity
         try {
             nativeSetStretch(stretch);
         } catch (UnsatisfiedLinkError e) {
-            Log.w(TAG, "libmain no cargada", e);
+            Log.w(TAG, "libmain not loaded", e);
         }
     }
 
@@ -296,7 +301,7 @@ public final class GameActivity extends SDLActivity
         bar.setBackground(bg);
 
         TextView hint = new TextView(this);
-        hint.setText("Toca un control para elegirlo · arrástralo para moverlo · pellizca para cambiar su tamaño");
+        hint.setText(getString(R.string.controls_hint));
         hint.setTextColor(0xCCFFFFFF);
         hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         hint.setGravity(Gravity.CENTER);
@@ -304,12 +309,12 @@ public final class GameActivity extends SDLActivity
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.addView(toolButton("Tamaño −", v -> controls.resizeSelected(1f / 1.12f)));
-        row.addView(toolButton("Tamaño +", v -> controls.resizeSelected(1.12f)));
-        row.addView(toolButton("Mostrar / ocultar", v -> controls.toggleSelectedVisible()));
-        row.addView(toolButton("Ajustes", v -> showSettings()));
-        row.addView(toolButton("Restablecer", v -> confirmReset()));
-        Button done = toolButton("Listo", v -> controls.setEditing(false));
+        row.addView(toolButton(getString(R.string.tb_shrink), v -> controls.resizeSelected(1f / 1.12f)));
+        row.addView(toolButton(getString(R.string.tb_grow), v -> controls.resizeSelected(1.12f)));
+        row.addView(toolButton(getString(R.string.tb_visibility), v -> controls.toggleSelectedVisible()));
+        row.addView(toolButton(getString(R.string.tb_settings), v -> showSettings()));
+        row.addView(toolButton(getString(R.string.tb_reset), v -> confirmReset()));
+        Button done = toolButton(getString(R.string.tb_done), v -> controls.setEditing(false));
         ((GradientDrawable) done.getBackground()).setColor(0xFFE07B00);
         row.addView(done);
         bar.addView(row);
@@ -339,10 +344,10 @@ public final class GameActivity extends SDLActivity
 
     private void confirmReset() {
         new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Restablecer controles")
-                .setMessage("¿Volver a la posición y el tamaño originales de todos los controles?")
-                .setPositiveButton("Restablecer", (d, w) -> controls.resetLayout())
-                .setNegativeButton("Cancelar", null)
+                .setTitle(getString(R.string.reset_controls_title))
+                .setMessage(getString(R.string.reset_controls_msg))
+                .setPositiveButton(getString(R.string.action_reset), (d, w) -> controls.resetLayout())
+                .setNegativeButton(getString(R.string.action_cancel), null)
                 .show();
     }
 
@@ -351,29 +356,29 @@ public final class GameActivity extends SDLActivity
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(20), dp(8), dp(20), dp(8));
 
-        panel.addView(toggle("Imagen estirada a toda la pantalla", controls.stretch, on -> {
+        panel.addView(toggle(getString(R.string.toggle_stretch), controls.stretch, on -> {
             controls.stretch = on;
             applyStretch(on);
         }));
-        panel.addView(toggle("Vibrar al pulsar", controls.haptics, on -> controls.haptics = on));
-        panel.addView(toggle("Ocultar los controles al usar un mando", controls.hideWithGamepad,
+        panel.addView(toggle(getString(R.string.toggle_haptics), controls.haptics, on -> controls.haptics = on));
+        panel.addView(toggle(getString(R.string.toggle_hide_pad), controls.hideWithGamepad,
                 on -> controls.hideWithGamepad = on));
-        panel.addView(toggle("Dirección inclinando el teléfono", controls.tiltSteering, on -> {
+        panel.addView(toggle(getString(R.string.toggle_tilt), controls.tiltSteering, on -> {
             controls.tiltSteering = on;
             updateTiltListener();
         }));
-        panel.addView(slider("Sensibilidad de la inclinación", 50, 250,
+        panel.addView(slider(getString(R.string.slider_tilt), 50, 250,
                 Math.round(controls.tiltSensitivity * 100), v -> controls.tiltSensitivity = v / 100f));
-        panel.addView(slider("Opacidad de los controles", 15, 100,
+        panel.addView(slider(getString(R.string.slider_opacity), 15, 100,
                 Math.round(controls.opacity * 100), v -> {
                     controls.opacity = v / 100f;
                     controls.invalidate();
                 }));
 
         new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Ajustes de los controles")
+                .setTitle(getString(R.string.controls_settings_title))
                 .setView(panel)
-                .setPositiveButton("Cerrar", (d, w) -> controls.save())
+                .setPositiveButton(getString(R.string.action_close), (d, w) -> controls.save())
                 .setOnDismissListener(d -> controls.save())
                 .show();
     }
@@ -406,11 +411,11 @@ public final class GameActivity extends SDLActivity
         SeekBar bar = new SeekBar(this);
         bar.setMax(max - min);
         bar.setProgress(Math.max(0, Math.min(max - min, value - min)));
-        title.setText(label + ": " + value + " %");
+        title.setText(getString(R.string.percent_value, label, value));
         bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar s, int progress, boolean fromUser) {
-                title.setText(label + ": " + (progress + min) + " %");
+                title.setText(getString(R.string.percent_value, label, progress + min));
                 onValue.set(progress + min);
             }
 
@@ -452,7 +457,7 @@ public final class GameActivity extends SDLActivity
             }
             prefs.edit().putString("settings_sha256", bundledHash).apply();
         } catch (IOException | NoSuchAlgorithmException e) {
-            Log.w(TAG, "No se pudo instalar " + SETTINGS, e);
+            Log.w(TAG, "Could not install " + SETTINGS, e);
         }
     }
 
