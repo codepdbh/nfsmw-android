@@ -151,6 +151,24 @@ function(rexglue_configure_target target_name)
                 )
             endif()
         endforeach()
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # PARCHE LOCAL (Linux desktop): the host uses the $ORIGIN rpath above, but the SDK writes
+        # librexruntime.so to its own out/<platform> folder, so the executable did not start until the
+        # library was copied by hand (and a hand copy goes stale on the next build). Stage the shared
+        # runtime libraries next to it, as on macOS. Android ("Android") and the Switch are not affected.
+        foreach(_rexglue_runtime_lib rex::runtime rexruntime rex::TracyClient TracyClient)
+            if(TARGET ${_rexglue_runtime_lib})
+                get_target_property(_rexglue_runtime_type ${_rexglue_runtime_lib} TYPE)
+                if(_rexglue_runtime_type STREQUAL "SHARED_LIBRARY")
+                    add_custom_command(TARGET ${target_name} POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            $<TARGET_FILE:${_rexglue_runtime_lib}>
+                            $<TARGET_FILE_DIR:${target_name}>
+                        VERBATIM
+                    )
+                endif()
+            endif()
+        endforeach()
     endif()
 
     if(WIN32)

@@ -76,7 +76,9 @@
 #include <rex/logging.h>
 #include <rex/platform.h>
 
-REXCVAR_DEFINE_BOOL(nfsmw_render_sin_mosaico, REX_PLATFORM_SWITCH != 0, "NFSMW",
+// On by default on the Switch and on desktop Linux (Android turns it on in its nfsmw.toml): without it the
+// native renderer only draws the top strip of the 3-strip tiling, a third of the screen.
+REXCVAR_DEFINE_BOOL(nfsmw_render_sin_mosaico, REX_PLATFORM_SWITCH != 0 || REX_PLATFORM_GNU_LINUX != 0, "NFSMW",
                     "Dibujar la escena una sola vez, sin tiling de 3 tiras ni MSAA "
                     "(evita repetir la escena por tira bajo la emulacion de Xenos)")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);

@@ -43,7 +43,12 @@ struct FPSCRPlatform {
 
   static inline u32 getcsr() noexcept { return simde_mm_getcsr(); }
 
-  static inline void setcsr(u32 csr) noexcept { simde_mm_setcsr(csr); }
+  // PARCHE LOCAL (Linux x86-64): the guest only owns the rounding and flush bits (GuestMask), so the
+  // host exceptions are always kept masked here. Host threads that never call FPSCRRegister::InitHost
+  // (the runtime's "Audio Worker", which runs the 44100->48000 resample) have a cached csr of 0, and
+  // writing it as is unmasks every MXCSR exception: SIGFPE (exit 136) on the first vdivss by zero.
+  // On AArch64 a zeroed FPCR already means traps off, which is why Android and the Switch never hit it.
+  static inline void setcsr(u32 csr) noexcept { simde_mm_setcsr(csr | ExceptionMask); }
 
   static inline void InitHostExceptions(u32& csr) noexcept {
     csr |= ExceptionMask;  // Set mask bits to disable exceptions

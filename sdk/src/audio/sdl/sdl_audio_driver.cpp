@@ -41,10 +41,11 @@ REXCVAR_DEFINE_INT32(audio_sdl_rafaga_tramas, 0, "Audio",
                      "Diagnostico: el driver SDL saca las tramas del juego de N en N, con N "
                      "liberaciones seguidas, como el driver de la Switch con buferes de 4 tramas; "
                      "0 o 1 = una a una, como siempre");
-REXCVAR_DEFINE_BOOL(audio_sdl_bomba, REX_PLATFORM_ANDROID != 0, "Audio",
+// PARCHE LOCAL (Linux desktop): same pump as Android, tested together with audio_xma_en_trabajador = 2.
+REXCVAR_DEFINE_BOOL(audio_sdl_bomba, REX_PLATFORM_ANDROID != 0 || REX_PLATFORM_GNU_LINUX != 0, "Audio",
                     "Pedir audio a ritmo constante cada 5,333 ms, independiente de las rafagas del "
-                    "dispositivo (por defecto en Android)");
-REXCVAR_DEFINE_INT32(audio_sdl_bomba_cola, REX_PLATFORM_ANDROID ? 12 : 6, "Audio",
+                    "dispositivo (por defecto en Android y Linux)");
+REXCVAR_DEFINE_INT32(audio_sdl_bomba_cola, (REX_PLATFORM_ANDROID || REX_PLATFORM_GNU_LINUX) ? 12 : 6, "Audio",
                      "Tramas de reserva de la bomba SDL (12 = 64 ms; necesita audio_sdl_bomba)")
     .range(2, 32);
 REXCVAR_DEFINE_INT32(audio_volcado_salida_s, 0, "Audio",

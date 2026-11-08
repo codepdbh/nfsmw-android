@@ -123,7 +123,14 @@ REXCVAR_DEFINE_STRING(nfsmw_renderizador, "nativo", "NFSMW",
     .allowed({"nativo"})
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 #else
-REXCVAR_DEFINE_STRING(nfsmw_renderizador, "xenos", "NFSMW",
+// Desktop Linux starts with the native renderer, like the Android and Switch builds do through their
+// nfsmw.toml (that file is not installed next to the Linux executable). "xenos" can still be chosen there.
+#if REX_PLATFORM_GNU_LINUX
+#define NFSMW_RENDERIZADOR_POR_DEFECTO "nativo"
+#else
+#define NFSMW_RENDERIZADOR_POR_DEFECTO "xenos"
+#endif
+REXCVAR_DEFINE_STRING(nfsmw_renderizador, NFSMW_RENDERIZADOR_POR_DEFECTO, "NFSMW",
                       "xenos = emulacion de la GPU; nativo = renderizador nativo en desarrollo "
                       "(pieza C1: el juego corre sin emulacion y la pantalla muestra un color de "
                       "prueba)")
