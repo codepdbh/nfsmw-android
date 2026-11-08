@@ -115,6 +115,12 @@ def main():
                     else:
                         copied += 1
                 else:
+                    # On Linux/macOS Git checks out real symlinks. os.walk lists links to directories
+                    # and dangling links (moltenvk/MoltenVK/include/vk_video points into a dependency
+                    # that is never fetched) as files, and copy2 would follow them and fail.
+                    if os.path.islink(src) and not os.path.isfile(src):
+                        print(f'Skipping dangling or directory link: {relative_path}')
+                        continue
                     shutil.copy2(src, dst)
                     copied += 1
         print(f'{copied} files copied into sdk/thirdparty, {kept} files of this port kept')
