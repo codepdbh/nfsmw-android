@@ -71,9 +71,17 @@ Follow [mesa/README.md](../mesa/README.md): build [mesa-switch](https://github.c
 build it with your PC's compiler, not with the Switch one.
 
 ```sh
-cmake -S sdk -B out/host -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake -S sdk -B out/host -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_C_FLAGS=-march=x86-64-v2 -DCMAKE_CXX_FLAGS=-march=x86-64-v2
 cmake --build out/host --target rexglue
 ```
+
+On an x86-64 PC the SDK needs at least `-march=x86-64-v2` (the SDK presets pass it too): without it
+`src/core/memory.cpp` fails with `_mm_shuffle_epi8 requires target feature 'ssse3'`. On an ARM64 PC leave both flags
+out.
+
+The SDK writes its programs to `sdk/out/<platform>/`, not to the build folder: `rexglue` ends up in
+`sdk/out/linux-amd64/rexglue` on Linux and `sdk/out/win-amd64/rexglue.exe` on Windows.
 
 This version has a change that makes the translated code faster: the Xbox 360 processor's registers live in normal C++
 variables, shared by the pieces of a split function (`share_registers`, see [toolchain.md](toolchain.md)).
@@ -81,7 +89,7 @@ variables, shared by the pieces of a split function (`share_registers`, see [too
 ## 5. Translate the game to C++
 
 ```sh
-REXGLUE=out/host/rexglue tools/codegen.sh app
+REXGLUE=$PWD/sdk/out/linux-amd64/rexglue tools/codegen.sh app
 ```
 
 This does three things:
