@@ -47,7 +47,8 @@ REXCVAR_DECLARE(bool, audio_diag_prioridad_critica);  // definida en audio_syste
  */
 #if REX_PLATFORM_SWITCH
 #define REX_XMA_EN_TRABAJADOR_POR_DEFECTO 1
-#elif REX_PLATFORM_ANDROID
+#elif REX_PLATFORM_ANDROID || REX_PLATFORM_GNU_LINUX
+// PARCHE LOCAL (Linux desktop): with 0, music, police radio and menu sounds come out robotic there.
 #define REX_XMA_EN_TRABAJADOR_POR_DEFECTO 2
 #else
 #define REX_XMA_EN_TRABAJADOR_POR_DEFECTO 0

@@ -26,7 +26,8 @@
 #include <rex/cvar.h>
 
 REXCVAR_DEFINE_INT32(
-    audio_maxqframes, REX_PLATFORM_ANDROID ? 12 : 8, "Audio",
+    // PARCHE LOCAL (Linux desktop): 12 like Android, to match audio_sdl_bomba_cola.
+    audio_maxqframes, (REX_PLATFORM_ANDROID || REX_PLATFORM_GNU_LINUX) ? 12 : 8, "Audio",
     "Max buffered audio frames (range 4-64). Lower reduces latency but may cause stuttering.");
 REXCVAR_DEFINE_BOOL(audio_diag_prioridad_critica, false, "Audio",
                     "Diagnostico (solo PC): Audio Worker y XMA Decoder a prioridad de tiempo critico, "
